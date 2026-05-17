@@ -9,7 +9,7 @@
 出力:
   dummy_data.xlsx        questions / responses シート（analyze.py 互換）
   dummy_truth.csv        各生徒・各テスト回・各タグの「真の理解度」
-                         → パラメータリカバリー(verify_recovery.py)で使用
+                         → リカバリー検証(verify_recovery.py)で使用
 
 ポイント:
   生徒の真の理解度は実験者が決めて記録しておく。
@@ -94,10 +94,6 @@ truth_df.to_csv("dummy_truth.csv", index=False, encoding="utf-8-sig")
 #    各問題に 1〜2 個のタグを割り当てる。
 #    teacher_tags は「真のタグ」。ai_tags はあえて少しノイズを混ぜて
 #    「AIタグ付けは完璧でない」状況を再現する。
-#
-#    重要: 問題のタグ構成は1セットだけ決め、全テスト回で使い回す。
-#    回ごとにタグ分布が変わると、つまずきマップの時系列比較が
-#    「生徒の成長」なのか「タグ構成の偶然」なのか区別できなくなるため。
 # ============================================================
 q_rows = []
 # AIが間違えやすいタグの組（混同しやすいペアを仕込む）
@@ -105,43 +101,36 @@ AI_CONFUSION = {
     "participle": "relative-clause",   # 分詞構文と関係詞を混同しがち
     "inference": "reference",          # 推論と指示語把握を混同しがち
 }
-
-# まず Q番号ごとのタグ構成を1セットだけ決める
-q_template = []   # [{teacher: [...], ai: "..."}, ...]
-for q in range(1, N_QUESTIONS_PER_TEST + 1):
-    n_tag = 1 if rng.random() < 0.7 else 2
-    chosen = list(rng.choice(TAGS, size=n_tag, replace=False))
-
-    # AIタグ：8割はそのまま、2割は混同・欠落・過剰のいずれか
-    ai_tags_set = set(chosen)
-    if rng.random() < 0.20:
-        mode = rng.choice(["confuse", "drop", "add"])
-        if mode == "confuse":
-            for t in list(ai_tags_set):
-                if t in AI_CONFUSION:
-                    ai_tags_set.discard(t)
-                    ai_tags_set.add(AI_CONFUSION[t])
-        elif mode == "drop" and len(ai_tags_set) > 1:
-            ai_tags_set.discard(rng.choice(list(ai_tags_set)))
-        elif mode == "add":
-            ai_tags_set.add(rng.choice(TAGS))
-    q_template.append({
-        "teacher": chosen,
-        "ai": ";".join(sorted(ai_tags_set)),
-    })
-
-# 全テスト回に同じタグ構成を展開する
 for test in range(1, N_TESTS + 1):
     for q in range(1, N_QUESTIONS_PER_TEST + 1):
-        tmpl = q_template[q - 1]
+        # この問題に割り当てるタグ数（7割が1個、3割が2個）
+        n_tag = 1 if rng.random() < 0.7 else 2
+        chosen = list(rng.choice(TAGS, size=n_tag, replace=False))
+        teacher_tags = ";".join(chosen)
+
+        # AIタグ：8割はそのまま、2割は混同・欠落・過剰のいずれか
+        ai_tags_set = set(chosen)
+        if rng.random() < 0.20:
+            mode = rng.choice(["confuse", "drop", "add"])
+            if mode == "confuse":
+                for t in list(ai_tags_set):
+                    if t in AI_CONFUSION:
+                        ai_tags_set.discard(t)
+                        ai_tags_set.add(AI_CONFUSION[t])
+            elif mode == "drop" and len(ai_tags_set) > 1:
+                ai_tags_set.discard(rng.choice(list(ai_tags_set)))
+            elif mode == "add":
+                ai_tags_set.add(rng.choice(TAGS))
+        ai_tags = ";".join(sorted(ai_tags_set))
+
         q_rows.append({
             "test_id": f"test{test:02d}",
             "question_id": f"Q{q:02d}",
             "max_score": 1,
-            "teacher_tags": ";".join(tmpl["teacher"]),
-            "ai_tags": tmpl["ai"],
+            "teacher_tags": teacher_tags,
+            "ai_tags": ai_tags,
             "memo": "dummy",
-            "_tags": tmpl["teacher"],   # 内部用（正誤生成で使う）
+            "_tags": chosen,           # 内部用（正誤生成で使う）
         })
 questions_df = pd.DataFrame(q_rows)
 

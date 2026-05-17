@@ -155,58 +155,5 @@ if len(long) > 0:
     fig.tight_layout()
     fig.savefig("tag_accuracy.png", dpi=150)
     print("written: tag_accuracy.png / tag_accuracy.csv")
-
-    # ============================================================
-    # 分析2b：つまずきマップの時系列変化（テストが複数回ある場合）
-    #   テスト回ごとにタグ別正答率を出し、折れ線で推移を可視化する。
-    #   前提：各テスト回が同じタグ体系で作られていること。
-    # ============================================================
-    records_t = []
-    for _, row in merged.iterrows():
-        tags = row["teacher_set"]
-        if not isinstance(tags, set):
-            continue
-        for t in tags:
-            records_t.append({"test_id": row["test_id"], "tag": t,
-                              "correct": row["correct"]})
-    long_t = pd.DataFrame(records_t)
-    test_ids = sorted(long_t["test_id"].unique())
-
-    if len(test_ids) > 1:
-        # テスト回×タグ の正答率表
-        pivot = (long_t.groupby(["test_id", "tag"])["correct"]
-                 .mean().unstack("tag"))
-        pivot.to_csv("tag_accuracy_timeseries.csv", encoding="utf-8-sig")
-
-        fig, ax = plt.subplots(figsize=(9, 5))
-        for tag in pivot.columns:
-            ax.plot(range(len(test_ids)), pivot[tag], "o-", label=tag)
-        ax.set_xticks(range(len(test_ids)))
-        ax.set_xticklabels(test_ids)
-        ax.set_ylim(0, 1)
-        ax.set_xlabel("テスト回")
-        ax.set_ylabel("クラス平均正答率")
-        ax.set_title("つまずきマップの時系列変化（タグ別正答率の推移）")
-        ax.axhline(0.5, color="gray", ls="--", lw=0.8)
-        ax.axhline(0.7, color="gray", ls=":", lw=0.8)
-        ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=9)
-        ax.grid(alpha=0.3)
-        fig.tight_layout()
-        fig.savefig("tag_accuracy_timeseries.png", dpi=150)
-        print("written: tag_accuracy_timeseries.png / "
-              "tag_accuracy_timeseries.csv")
-
-        # 第1回 → 最終回 の変化量レポート
-        first, last = test_ids[0], test_ids[-1]
-        with open("tag_change_report.txt", "w", encoding="utf-8") as f:
-            f.write(f"=== つまずきマップ変化レポート（{first} → {last}）===\n\n")
-            f.write(f"{'tag':<20}{'初回':>8}{'最終':>8}{'変化':>9}\n")
-            for tag in sorted(pivot.columns,
-                              key=lambda t: pivot.loc[last, t]):
-                v0, v1 = pivot.loc[first, tag], pivot.loc[last, tag]
-                d = v1 - v0
-                f.write(f"{tag:<20}{v0:>8.0%}{v1:>8.0%}{d:>+8.1%}\n")
-            f.write("\n※ プラス＝改善、マイナス＝低下。\n")
-        print("written: tag_change_report.txt")
 else:
     print("responses が空です。")

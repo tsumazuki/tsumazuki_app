@@ -10,7 +10,7 @@
 | `tsumazuki_webapp_v2.html` | Webアプリ | これ1つで全工程。ダミー/本番モード対応 |
 | `generate_dummy.py` | Python | ダミーデータ生成（中程度モデル） |
 | `analyze.py` | Python | つまずきマップ＋AIタグ一致度の分析 |
-| `verify_recovery.py` | Python | パラメータリカバリー（真値と推定値の照合） |
+| `verify_recovery.py` | Python | リカバリー検証（真値と推定値の照合） |
 | `tsumazuki_template.xlsx` | Excel | 本番データの入力テンプレート |
 
 ## Webアプリの使い方
@@ -19,13 +19,10 @@
 インストール不要、サーバ不要、通信もしません。
 
 - **ダミーモード**: 仮想クラスを生成し、STEP 1〜5（生成・マップ・AIタグ検証・
-  パラメータリカバリー・問題生成計画）でシステムを検証します。
+  リカバリー検証・問題生成計画）でシステムを検証します。
 - **本番モード**: 実際の生徒の解答を手入力またはCSVで取り込み、
-  STEP 1〜3 と STEP 5 を実行します。真値が無いためパラメータリカバリーは省略されます。
+  STEP 1〜3 と STEP 5 を実行します。真値が無いためリカバリー検証は省略されます。
   STEP 1b でAIタグ付け用プロンプトを生成できます。
-  複数回のテストを入力でき、つまずきマップの時系列変化（折れ線＋棒）を
-  STEP 2 で確認できます。各テスト回のデータはCSVで保存・読み込みできます
-  （test_id 列でテスト回を区別します）。
 
 ## Pythonスクリプトの使い方
 
@@ -38,7 +35,7 @@ pip install pandas openpyxl matplotlib japanize-matplotlib
 ```
 python3 generate_dummy.py      # dummy_data.xlsx と dummy_truth.csv を生成
 python3 analyze.py dummy_data.xlsx     # つまずきマップ等を出力
-python3 verify_recovery.py     # パラメータリカバリーの図とレポートを出力
+python3 verify_recovery.py     # リカバリー検証の図とレポートを出力
 ```
 
 ### 実際の生徒データを分析する場合
