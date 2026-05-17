@@ -385,7 +385,7 @@
     { n:"STEP 1", t:"データ準備" },
     { n:"STEP 2", t:"つまずきマップ" },
     { n:"STEP 3", t:"AIタグ検証" },
-    { n:"STEP 4", t:"リカバリー検証" },
+    { n:"STEP 4", t:"パラメータリカバリー" },
     { n:"STEP 5", t:"問題自動生成" }
   ];
 
@@ -408,7 +408,7 @@
       <div class="mode-banner ${isDummy?'dummy':'live'}">
         ${isDummy
           ? '◆ ダミーモード：仮想データでシステムを検証中。実在の生徒データではありません。'
-          : '◆ 本番モード：実際の生徒の解答を入力します。真値が無いためリカバリー検証は行いません。'}
+          : '◆ 本番モード：実際の生徒の解答を入力します。真値が無いためパラメータリカバリーは行いません。'}
       </div>
       <div class="steps">
         ${STEPS.map((s,i)=>{
@@ -506,7 +506,7 @@
       </div>
       ${inputArea}
       <div class="callout warn">本番モードでは生徒の「本当の理解度」は誰も知りません。
-      そのため<b>リカバリー検証（STEP 4）は行えません</b>。代わりに実データでのAIタグ精度を確認します。</div>
+      そのため<b>パラメータリカバリー（STEP 4）は行えません</b>。代わりに実データでのAIタグ精度を確認します。</div>
       <button class="run" id="live-apply">この内容で分析する</button>
       <div id="live-result"></div>
     </div>
@@ -639,12 +639,12 @@
       <div class="card"><h2><span class="tag">STEP 3</span>AIタグ付けの信頼性</h2>${body}</div></div>`;
   }
 
-  // ---- STEP 4: リカバリー検証（ダミー専用） ----
+  // ---- STEP 4: パラメータリカバリー（ダミー専用） ----
   function panelRecovery(){
     let body;
     if(state.appMode==='live'){
       body=`<div class="callout warn"><b>本番モードではこのステップは行いません。</b>
-      リカバリー検証は「仕込んだ真値」と推定値を照合する検証で、真値が存在するダミーモード専用です。
+      パラメータリカバリーは「仕込んだ真値」と推定値を照合する検証で、真値が存在するダミーモード専用です。
       実データの妥当性は STEP 3（AIタグ検証）で確認します。</div>`;
     } else if(!state.data){
       body=`<div class="empty">STEP 1 でダミークラスを生成してください。</div>`;
@@ -672,7 +672,7 @@
         <td>${s.corr.toFixed(4)}</td></tr>`).join('')}</table>`;
     }
     return `<div class="panel ${state.step===3?'active':''}" data-panel="3">
-      <div class="card"><h2><span class="tag">STEP 4</span>リカバリー検証</h2>${body}</div></div>`;
+      <div class="card"><h2><span class="tag">STEP 4</span>パラメータリカバリー</h2>${body}</div></div>`;
   }
 
   // ---- STEP 5: 問題自動生成（生成仕様の可視化） ----
