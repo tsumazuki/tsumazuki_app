@@ -9,7 +9,7 @@
 出力:
   dummy_data.xlsx        questions / responses シート（analyze.py 互換）
   dummy_truth.csv        各生徒・各テスト回・各タグの「真の理解度」
-                         → リカバリー検証(verify_recovery.py)で使用
+                         → パラメータリカバリー(verify_recovery.py)で使用
 
 ポイント:
   生徒の真の理解度は実験者が決めて記録しておく。

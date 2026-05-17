@@ -170,6 +170,11 @@
     padding: 10px 15px; font-size: 0.84rem; margin: 13px 0; border-radius: 0 3px 3px 0;
   }
   .callout.warn { border-color: var(--warn); background: #faf3e6; }
+  .callout.privacy {
+    border-color: var(--good); background: #e8f1ea;
+    display: flex; align-items: flex-start; gap: 8px;
+  }
+  .callout.privacy .lock { font-size: 1.1rem; line-height: 1.3; }
   .callout b { font-weight: 700; }
 
   .empty { color: var(--mute); font-size: 0.84rem; font-style: italic;
@@ -430,7 +435,7 @@
     { n:"STEP 1", t:"データ準備" },
     { n:"STEP 2", t:"つまずきマップ" },
     { n:"STEP 3", t:"AIタグ検証" },
-    { n:"STEP 4", t:"リカバリー検証" },
+    { n:"STEP 4", t:"パラメータリカバリー" },
     { n:"STEP 5", t:"問題自動生成" }
   ];
 
@@ -453,7 +458,7 @@
       <div class="mode-banner ${isDummy?'dummy':'live'}">
         ${isDummy
           ? '◆ ダミーモード：仮想データでシステムを検証中。実在の生徒データではありません。'
-          : '◆ 本番モード：実際の生徒の解答を入力します。真値が無いためリカバリー検証は行いません。'}
+          : '◆ 本番モード：実際の生徒の解答を入力します。入力したデータはこのブラウザ内だけで処理され、外部に送信されることはありません。'}
       </div>
       <div class="steps">
         ${STEPS.map((s,i)=>{
@@ -540,6 +545,13 @@
       <h2><span class="tag">STEP 1 / 本番</span>生徒の解答を入力</h2>
       <div class="desc">実際のテストの採点結果を入力します。複数回のテストを入れると、
       つまずきマップの時系列変化（STEP 2）を見られます。</div>
+      <div class="callout privacy">
+        <span class="lock">&#128274;</span>
+        <span>入力した生徒の成績データは、<b>このブラウザの中だけで処理されます</b>。
+        サーバーや外部サービスに送信・保存されることは一切ありません。
+        ページを閉じるとデータは消えるため、必要に応じて「入力済みデータをCSVで保存」で
+        手元に保存してください。</span>
+      </div>
       <div class="ctrl-grid" style="grid-template-columns:repeat(2,1fr);max-width:420px">
         <div class="ctrl"><label>生徒数<span class="val" id="lv-st">${lv.nStudents}</span></label>
           <input type="range" id="rl-st" min="3" max="40" value="${lv.nStudents}">
@@ -554,7 +566,7 @@
       </div>
       ${inputArea}
       <div class="callout warn">本番モードでは生徒の「本当の理解度」は誰も知りません。
-      そのため<b>リカバリー検証（STEP 4）は行えません</b>。代わりに実データでのAIタグ精度を確認します。</div>
+      そのため<b>パラメータリカバリー（STEP 4）は行えません</b>。代わりに実データでのAIタグ精度を確認します。</div>
       <button class="run" id="live-apply">この内容で分析する</button>
       <div id="live-result"></div>
     </div>
@@ -666,13 +678,11 @@
         // 第1回→最新回 の変化量
         const first=perTest[0];
         body=`<div class="desc">テストを重ねるごとに、つまずきマップがどう変化したかを示します。
-        折れ線は各タグの正答率の推移、棒グラフは最新（第${nT}回）のスナップショットです。</div>
-        <h2 style="font-size:.9rem;margin:14px 0 4px">① タグ別 正答率の推移（折れ線）</h2>
-        ${lineChartSVG(perTest,sorted)}
-        <h2 style="font-size:.9rem;margin:18px 0 4px">② 最新（第${nT}回）のつまずきマップ（棒）</h2>
+        棒グラフは最新（第${nT}回）のスナップショット、折れ線は各タグの正答率の推移です。</div>
+        <h2 style="font-size:.9rem;margin:14px 0 4px">① 最新（第${nT}回）のつまずきマップ（棒）</h2>
         ${barRows(latest,latestSorted)}
         ${mapLegend()}
-        <h2 style="font-size:.9rem;margin:18px 0 4px">③ 第1回 → 第${nT}回 の変化</h2>
+        <h2 style="font-size:.9rem;margin:18px 0 4px">② 第1回 → 第${nT}回 の変化</h2>
         <table class="cmp"><tr><th>タグ</th><th>第1回</th><th>第${nT}回</th><th>変化</th></tr>
         ${sorted.map(tg=>{
           if(first[tg]===null||latest[tg]===null) return '';
@@ -683,8 +693,10 @@
             <td>${(latest[tg]*100).toFixed(0)}%</td>
             <td style="color:${col};font-weight:600">${sign}${(d*100).toFixed(1)}pt</td></tr>`;
         }).join('')}</table>
-        <div class="callout">正答率が上がったタグは補習や授業の効果が出た可能性、
-        下がった・伸びないタグは引き続き重点的な指導が必要、と読み取れます。</div>`;
+        <div class="callout">正答率が上がったタグは指導の効果が出た可能性、
+        下がった・伸びないタグは引き続き重点的な指導が必要、と読み取れます。</div>
+        <h2 style="font-size:.9rem;margin:18px 0 4px">③ タグ別 正答率の推移（折れ線）</h2>
+        ${lineChartSVG(perTest,sorted)}`;
       }
     }
     return `<div class="panel ${state.step===1?'active':''}" data-panel="1">
@@ -784,7 +796,7 @@
           });
         });
         body=`<div class="desc">生成AIにタグ付けさせた結果と教師タグの一致度を測ります。
-        AIにタグ付けを任せてよいかの検証で、発表の新規性の核です。</div>
+        一致度が高いほど、AIによるタグ付けを信頼して使えることを示します。</div>
         <div class="metrics">
           <div class="metric"><div class="k">平均Jaccard一致度</div>
             <div class="v ${cls}">${ag.mean.toFixed(3)}</div></div>
@@ -802,12 +814,12 @@
       <div class="card"><h2><span class="tag">STEP 3</span>AIタグ付けの信頼性</h2>${body}</div></div>`;
   }
 
-  // ---- STEP 4: リカバリー検証（ダミー専用） ----
+  // ---- STEP 4: パラメータリカバリー（ダミー専用） ----
   function panelRecovery(){
     let body;
     if(state.appMode==='live'){
       body=`<div class="callout warn"><b>本番モードではこのステップは行いません。</b>
-      リカバリー検証は「仕込んだ真値」と推定値を照合する検証で、真値が存在するダミーモード専用です。
+      パラメータリカバリーは「仕込んだ真値」と推定値を照合する検証で、真値が存在するダミーモード専用です。
       実データの妥当性は STEP 3（AIタグ検証）で確認します。</div>`;
     } else if(!state.data){
       body=`<div class="empty">STEP 1 でダミークラスを生成してください。</div>`;
@@ -835,7 +847,7 @@
         <td>${s.corr.toFixed(4)}</td></tr>`).join('')}</table>`;
     }
     return `<div class="panel ${state.step===3?'active':''}" data-panel="3">
-      <div class="card"><h2><span class="tag">STEP 4</span>リカバリー検証</h2>${body}</div></div>`;
+      <div class="card"><h2><span class="tag">STEP 4</span>パラメータリカバリー</h2>${body}</div></div>`;
   }
 
   // ---- STEP 5: 問題自動生成（生成仕様の可視化） ----
@@ -888,7 +900,7 @@
         }).join('')}
 
         <div class="callout">この出題計画と生成問題を生徒に解かせ、次のテストで
-        同じタグの正答率が上がるかを追えば、案2（弱点連動型の効果測定）の実践になります。</div>
+        同じタグの正答率が上がるかを追うことで、弱点に連動した指導の効果を測定できます。</div>
         <div class="navbtns">
           <button class="ghost" id="export-plan">出題計画をCSVで保存</button>
         </div>`;

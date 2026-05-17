@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-リカバリー検証スクリプト
+パラメータリカバリースクリプト
 ================================================
 generate_dummy.py が記録した「真の理解度」(dummy_truth.csv) と、
 dummy_data.xlsx の正答率から作った「つまずきマップの推定値」を照合する。
@@ -104,7 +104,7 @@ ntest_df = pd.DataFrame(ntest_rows)
 # レポート出力
 # ------------------------------------------------------------
 with open("recovery_report.txt", "w", encoding="utf-8") as f:
-    f.write("=== リカバリー検証レポート ===\n\n")
+    f.write("=== パラメータリカバリーレポート ===\n\n")
     f.write("問い: 正答率から作ったつまずきマップは、\n")
     f.write("      仕込んだ本当の理解度を復元できているか?\n\n")
     f.write("--- 全体精度（タグ×テスト回 単位） ---\n")
@@ -139,7 +139,7 @@ ax.scatter(compare["truth"], compare["estimated"],
 ax.plot([0, 1], [0, 1], "r--", lw=1, label="完全一致の線")
 ax.set_xlabel("仕込んだ真の理解度")
 ax.set_ylabel("マップが推定した理解度（正答率）")
-ax.set_title(f"リカバリー検証：真値 vs 推定値\n相関={corr:.3f}  MAE={mae:.3f}")
+ax.set_title(f"パラメータリカバリー：真値 vs 推定値\n相関={corr:.3f}  MAE={mae:.3f}")
 ax.set_xlim(0, 1)
 ax.set_ylim(0, 1)
 ax.legend()
