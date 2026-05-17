@@ -1,3 +1,37 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>つまずきマップ研究シミュレータ</title>
+
+<!-- ============================================================
+     リンク共有時のサムネイル設定（OGP）
+     ▼▼▼ GitHub Pages 等で公開したら、下の【公開URL】2箇所を
+        実際のURLに書き換えてください。例：
+        https://ユーザー名.github.io/リポジトリ名/
+     画像 screenshot.jpg は、このHTMLと同じ場所に置いてください。
+     ※ 相対パスでは多くのSNSがプレビューを生成できないため、
+        og:image / og:url は必ず絶対URL（https://〜）で記述します。
+     ============================================================ -->
+<meta property="og:title" content="つまずきマップ研究シミュレータ">
+<meta property="og:description" content="英語読解のAI活用授業 ／ 弱点分析・AIタグ検証・問題自動生成。まずダミーモードで挙動を確かめられます。">
+<meta property="og:type" content="website">
+<!-- 【公開URL】HTMLファイルのURL -->
+<meta property="og:url" content="https://tsumazuki.github.io/tsumazuki_app/tsumazuki_webapp_v2.html">
+<!-- 【公開URL】サムネイル画像のURL（HTMLと同じ場所の screenshot.jpg） -->
+<meta property="og:image" content="https://tsumazuki.github.io/tsumazuki_app/screenshot.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="719">
+<meta property="og:image:alt" content="つまずきマップ研究シミュレータの画面">
+<!-- Twitter/X 用（大きな画像つきカード） -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="つまずきマップ研究シミュレータ">
+<meta name="twitter:description" content="英語読解のAI活用授業 ／ 弱点分析・AIタグ検証・問題自動生成">
+<meta name="twitter:image" content="https://tsumazuki.github.io/tsumazuki_app/screenshot.jpg">
+</head>
+<body>
+
 <!-- つまずきマップ研究 Webアプリ版 v2：ダミー/本番モード + 問題生成 -->
 <div id="app-root"></div>
 
@@ -342,18 +376,32 @@
   // ============================================================
   // 共通定義
   // ============================================================
-  const TAGS = ["vocabulary","idiom","tense","relative-clause",
-                "participle","sentence-structure","reference","inference"];
-  const TAG_JA = {
-    "vocabulary":"語彙","idiom":"熟語","tense":"時制",
-    "relative-clause":"関係詞","participle":"分詞","sentence-structure":"文構造",
-    "reference":"指示語","inference":"推論"
-  };
-  const CLASS_BASELINE = {
-    "vocabulary":0.75,"idiom":0.60,"tense":0.70,"relative-clause":0.35,
-    "participle":0.40,"sentence-structure":0.55,"reference":0.65,"inference":0.45
-  };
+  // ▼▼▼ タグを変更したいときは、この TAG_CONFIG だけを編集してください ▼▼▼
+  //   en       : タグの英語名（半角英数とハイフンのみ。スペース不可）
+  //   ja       : タグの日本語名（画面に併記される）
+  //   baseline : ダミーモード用の「クラスの初期理解度」0〜1。
+  //              小さいほどそのタグが弱点。本番モードでは使われない。
+  //   行を増減すればタグが増減します。8〜10個程度を推奨。
+  //   （ハイフンを含む英語名でも可。例 "relative-clause"）
+  const TAG_CONFIG = [
+    { en:"vocabulary",         ja:"語彙",    baseline:0.75 },
+    { en:"idiom",              ja:"熟語",    baseline:0.60 },
+    { en:"tense",              ja:"時制",    baseline:0.70 },
+    { en:"relative-clause",    ja:"関係詞",  baseline:0.35 },
+    { en:"participle",         ja:"分詞",    baseline:0.40 },
+    { en:"sentence-structure", ja:"文構造",  baseline:0.55 },
+    { en:"reference",          ja:"指示語",  baseline:0.65 },
+    { en:"inference",          ja:"推論",    baseline:0.45 },
+  ];
+  // ダミーモードで「AIが混同しやすいタグの組」。左のタグを右のタグと取り違える。
+  // 使うタグ名は上の TAG_CONFIG の en と一致させること。不要なら {} でよい。
   const AI_CONFUSION = { "participle":"relative-clause", "inference":"reference" };
+  // ▲▲▲ 編集はここまで。以下は TAG_CONFIG から自動生成されるので触らない ▲▲▲
+
+  const TAGS = TAG_CONFIG.map(t=>t.en);
+  const TAG_JA = {};
+  const CLASS_BASELINE = {};
+  TAG_CONFIG.forEach(t=>{ TAG_JA[t.en]=t.ja; CLASS_BASELINE[t.en]=t.baseline; });
 
   function makeRng(seed){let s=seed>>>0;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};}
   function gauss(rng,m,sd){const u1=Math.max(rng(),1e-9),u2=rng();
@@ -854,11 +902,17 @@
   }
 
   // タグごとの色を返す（折れ線と凡例で共通利用）
+  // 基本は固定パレット。タグ数がパレットを超えたら色相環から自動生成して補う。
   const LINE_PALETTE=['#b5462f','#c98a2b','#3f7d6e','#2f5d62','#46587a',
-                      '#7a6f54','#a04a6a','#5a7a3a'];
+                      '#7a6f54','#a04a6a','#5a7a3a','#385f8a','#9a5a2a',
+                      '#5a3a6a','#2a6a5a'];
   function tagColor(tags,tg){
     const i=tags.indexOf(tg);
-    return LINE_PALETTE[(i<0?0:i)%LINE_PALETTE.length];
+    const idx=(i<0?0:i);
+    if(idx<LINE_PALETTE.length) return LINE_PALETTE[idx];
+    // パレットを超えたぶんは色相を等間隔にずらして生成（色被りを防ぐ）
+    const hue=(idx*47)%360;
+    return `hsl(${hue},45%,42%)`;
   }
 
   // 折れ線グラフSVG：タグ別正答率の推移
@@ -1058,8 +1112,8 @@
         })).sort((a,b)=>a.acc-b.acc);
         const planTotal=plan.reduce((a,p)=>a+p.n,0);
 
-        // 帯グラフ用の色
-        const palette=['#b5462f','#c98a2b','#7a6f54','#3f7d6e','#2f5d62','#46587a','#8a8474','#5a4a6a'];
+        // 帯グラフ等の色は tagColor で統一（タグ数が多くても色が被らない）
+        const planTags=plan.map(p=>p.tag);
 
         body=`<div class="desc">つまずきマップの弱点に連動して、補習問題の<b>出題計画</b>を自動で立てます。
         正答率が低いタグほど多く出題します。実際の英文生成は、下の生成プロンプトを
@@ -1068,13 +1122,13 @@
         <h2 style="font-size:.9rem;margin:14px 0 2px">出題計画の根拠：全${state.data.cfg.nTests}回 累計のつまずきマップ</h2>
         <div class="small" style="margin-bottom:6px">
         下の出題計画は、この累計つまずきマップ（全テスト回をまとめた正答率）に基づいて算出されています。</div>
-        ${barRows(map,plan.map(p=>p.tag),null)}
+        ${barRows(map,planTags,null)}
         ${mapLegend()}
 
         <h2 style="font-size:.9rem;margin:18px 0 4px">出題配分（合計${planTotal}問）</h2>
         <div class="seg-bar">
-          ${plan.map((p,i)=>`<div class="seg" style="width:${p.n/planTotal*100}%;
-            background:${palette[i%palette.length]}" title="${TAG_JA[p.tag]} ${p.n}問">
+          ${plan.map(p=>`<div class="seg" style="width:${p.n/planTotal*100}%;
+            background:${tagColor(planTags,p.tag)}" title="${TAG_JA[p.tag]} ${p.n}問">
             ${p.n>=2?TAG_JA[p.tag]:''}</div>`).join('')}
         </div>
         <table class="cmp"><tr><th>タグ</th><th>クラス正答率</th><th>出題数</th><th>狙い</th></tr>
@@ -1086,8 +1140,8 @@
         <h2 style="font-size:.9rem;margin:18px 0 4px">生成AIに渡すプロンプト</h2>
         <div class="desc">各弱点タグについて、生成AIにそのまま渡せる指示文を自動で組み立てました。
         コピーして ChatGPT / Claude に貼り付けてください。</div>
-        ${plan.filter(p=>p.acc<0.7).map((p,i)=>{
-          const col=palette[i%palette.length];
+        ${plan.filter(p=>p.acc<0.7).map(p=>{
+          const col=tagColor(planTags,p.tag);
           return `<div class="qgen-block">
             <div class="qg-head"><span>${TAG_JA[p.tag]}（${p.tag}）の強化問題</span>
               <span class="qg-pill" style="background:${col}">${p.n}問</span></div>
@@ -1668,3 +1722,5 @@ ${body}`;
   render();
 })();
 </script>
+</body>
+</html>
