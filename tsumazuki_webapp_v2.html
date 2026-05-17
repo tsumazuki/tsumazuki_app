@@ -351,6 +351,46 @@
     font-family: 'Spline Sans Mono', monospace; font-size: 0.7rem;
     padding: 2px 8px; border-radius: 10px; color: #fff;
   }
+  /* STEP5-B 通常問題生成 */
+  .level-pick { display: flex; gap: 6px; flex-wrap: wrap; }
+  .level-btn {
+    border: 1.5px solid var(--line); background: var(--card); cursor: pointer;
+    padding: 7px 13px; border-radius: 4px; font-weight: 700; font-size: 0.85rem;
+    display: flex; flex-direction: column; align-items: center; line-height: 1.2;
+  }
+  .level-btn:hover { border-color: var(--accent2); }
+  .level-btn.sel { border-color: var(--ink); background: var(--ink); color: #fff; }
+  .level-btn .lv-cefr {
+    font-family: 'Spline Sans Mono', monospace; font-size: 0.6rem;
+    font-weight: 400; opacity: 0.7;
+  }
+  .cg-tag-list {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 5px 14px;
+  }
+  .cg-tag-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 0; border-bottom: 1px solid var(--line);
+  }
+  .cg-tag-name { font-size: 0.8rem; }
+  .cg-stepper { display: flex; align-items: center; gap: 8px; }
+  .cg-stepper button {
+    width: 24px; height: 24px; border: 1.5px solid var(--ink);
+    background: var(--card); border-radius: 3px; cursor: pointer;
+    font-weight: 700; font-size: 0.9rem; line-height: 1; color: var(--ink);
+  }
+  .cg-stepper button:hover { background: var(--ink); color: #fff; }
+  .cg-count {
+    font-family: 'Spline Sans Mono', monospace; font-weight: 600;
+    min-width: 20px; text-align: center;
+  }
+  .cg-total {
+    margin-top: 8px; font-size: 0.86rem; text-align: right;
+  }
+  .cg-total b {
+    font-family: 'Spline Sans Mono', monospace; font-size: 1.05rem;
+    color: var(--accent);
+  }
   .prompt-box {
     background: var(--ink); color: #e8e4d8; font-family: 'Spline Sans Mono', monospace;
     font-size: 0.74rem; padding: 13px 15px; border-radius: 4px; margin-top: 8px;
@@ -556,7 +596,12 @@
       tests: [ { questions:[], grid:[] } ]  // 各回のデータ
     },
     tagPicker: { open:false, qi:null, selected:[] },  // タグ選択モーダル
-    mapViewTest: null                 // STEP2でいま表示中のテスト回（0始まり）
+    mapViewTest: null,                // STEP2でいま表示中のテスト回（0始まり）
+    // STEP5 通常問題生成（つまずきマップに依存しない問題作成）
+    customGen: {
+      counts: {},                     // { tag: 出題数 } 0なら出題しない
+      level: '高1'                    // 難易度（中1〜高3）
+    }
   };
 
   const STEPS = [
@@ -590,7 +635,9 @@
       </div>
       <div class="steps">
         ${STEPS.map((s,i)=>{
-          const locked = (i>0 && !state.data);
+          // 本番モードのSTEP5は、生徒データ未入力でも開ける（通常問題生成のため）
+          const step5Open = (!isDummy && i===4);
+          const locked = (i>0 && !state.data && !step5Open);
           const hideRecovery = (!isDummy && i===3);
           return `<div class="step-tab ${state.step===i?'active':''}
             ${state.data&&i>0?'done':''} ${locked?'locked':''}"
@@ -1095,15 +1142,15 @@
       <div class="card"><h2><span class="tag">STEP 4</span>パラメータリカバリー</h2>${body}</div></div>`;
   }
 
-  // ---- STEP 5: 問題自動生成（生成仕様の可視化） ----
+  // ---- STEP 5: 問題自動生成 ----
   function panelQGen(){
-    let body=`<div class="empty">STEP 1〜2 を済ませると、弱点に連動した出題計画を作成できます。</div>`;
+    // パートA：弱点連動の出題計画（つまずきマップに基づく。データがある時のみ）
+    let weakPart='';
     if(state.data){
       const map=buildMap(state.data,state.data.cfg.nTests);
       const valid=TAGS.filter(t=>map[t]!==null);
       if(valid.length>0){
-        // 弱点ほど多く出題する：出題数を正答率の低さに比例配分
-        const TOTAL=20;  // 生成する補習問題の総数
+        const TOTAL=20;
         const weights={}; let wsum=0;
         valid.forEach(t=>{ const w=Math.max(0.05,1-map[t]); weights[t]=w; wsum+=w; });
         const plan=valid.map(t=>({
@@ -1111,11 +1158,11 @@
           n:Math.max(1,Math.round(TOTAL*weights[t]/wsum))
         })).sort((a,b)=>a.acc-b.acc);
         const planTotal=plan.reduce((a,p)=>a+p.n,0);
-
-        // 帯グラフ等の色は tagColor で統一（タグ数が多くても色が被らない）
         const planTags=plan.map(p=>p.tag);
 
-        body=`<div class="desc">つまずきマップの弱点に連動して、補習問題の<b>出題計画</b>を自動で立てます。
+        weakPart=`<div class="card">
+        <h2><span class="tag">STEP 5-A</span>弱点連動の出題計画</h2>
+        <div class="desc">つまずきマップの弱点に連動して、補習問題の<b>出題計画</b>を自動で立てます。
         正答率が低いタグほど多く出題します。実際の英文生成は、下の生成プロンプトを
         ChatGPTやClaudeに貼り付けて行います（このアプリはAPIに接続しません）。</div>
 
@@ -1154,11 +1201,74 @@
         同じタグの正答率が上がるかを追うことで、弱点に連動した指導の効果を測定できます。</div>
         <div class="navbtns">
           <button class="ghost" id="export-plan">出題計画をCSVで保存</button>
-        </div>`;
+        </div></div>`;
       }
+    } else {
+      weakPart=`<div class="card">
+        <h2><span class="tag">STEP 5-A</span>弱点連動の出題計画</h2>
+        <div class="callout">つまずきマップに基づく弱点連動の出題計画は、
+        STEP 1 で生徒の解答データを入力すると表示されます。
+        マップに依存しない通常の問題は、下の「通常問題の作成」で今すぐ作れます。</div>
+      </div>`;
     }
+
+    // パートB：通常問題生成（つまずきマップに依存しない。常に表示）
+    const customPart=customGenCard();
+
     return `<div class="panel ${state.step===4?'active':''}" data-panel="4">
-      <div class="card"><h2><span class="tag">STEP 5</span>問題自動生成（出題計画）</h2>${body}</div></div>`;
+      ${weakPart}
+      ${customPart}
+    </div>`;
+  }
+
+  // STEP5-B：通常問題の作成カード（タグと出題数を手動指定）
+  function customGenCard(){
+    const cg=state.customGen;
+    // タグごとの出題数入力欄
+    const tagRows=TAGS.map(t=>{
+      const n=cg.counts[t]||0;
+      return `<div class="cg-tag-row">
+        <span class="cg-tag-name">${t} <span style="color:var(--mute)">${TAG_JA[t]}</span></span>
+        <div class="cg-stepper">
+          <button class="cg-minus" data-cgtag="${t}">−</button>
+          <span class="cg-count" id="cg-n-${t}">${n}</span>
+          <button class="cg-plus" data-cgtag="${t}">＋</button>
+        </div>
+      </div>`;
+    }).join('');
+    const total=TAGS.reduce((a,t)=>a+(cg.counts[t]||0),0);
+    // プレビュー用 plan
+    const plan=TAGS.filter(t=>(cg.counts[t]||0)>0)
+      .map(t=>({tag:t,n:cg.counts[t]}));
+    const promptText = total>0
+      ? buildCustomPrompt(plan,cg.level)
+      : '（出題するタグの問題数を1問以上に設定すると、ここにプロンプトが表示されます）';
+
+    return `<div class="card">
+      <h2><span class="tag">STEP 5-B</span>通常問題の作成（つまずきマップ不要）</h2>
+      <div class="desc">つまずきマップに関係なく、出題したいタグと問題数・難易度を自分で指定して
+      問題作成プロンプトを作ります。第1回テストの作成や、弱点補強に偏らない
+      バランスのとれた出題に使えます。生徒データの入力は不要です。</div>
+
+      <div class="small" style="font-weight:500;margin-bottom:4px">① 難易度（学年）を選ぶ</div>
+      <div class="level-pick">
+        ${LEVELS.map(l=>`<button class="level-btn ${cg.level===l.name?'sel':''}"
+          data-level="${l.name}">${l.name}<span class="lv-cefr">${l.cefr}</span></button>`).join('')}
+      </div>
+
+      <div class="small" style="font-weight:500;margin:12px 0 4px">
+        ② 出題するタグと問題数を指定（＋－で増減）</div>
+      <div class="cg-tag-list">${tagRows}</div>
+      <div class="cg-total">合計 <b>${total}</b> 問</div>
+
+      <div class="small" style="font-weight:500;margin:12px 0 4px">
+        ③ 生成されたプロンプト</div>
+      <div class="prompt-box" id="pb-custom">${escapeHTML(promptText)}<button
+        class="copy-btn" data-copy="pb-custom">コピー</button></div>
+      <div class="small" style="margin-top:6px">
+      このプロンプトを ChatGPT / Claude に貼り付けて問題を作成できます。
+      また、本番モードの「STEP 1b（AIにタグ付けさせる）」の問題文入力欄にも利用できます。</div>
+    </div>`;
   }
 
   // AIにタグ付けさせるためのプロンプトを組み立てる
@@ -1228,6 +1338,42 @@ ${body}`;
  - 正解と、なぜその選択肢が正解かの解説
  - この問題が「${p.tag}」を問うていることが分かる箇所の明示
 【難易度】${p.n}問すべて同程度の難易度に揃えること。
+出力はそのまま生徒に配布できる形式で。`;
+  }
+
+  // 難易度レベル（中1〜高3）。CEFR と語数の目安を併記して生成AIに伝わりやすくする
+  const LEVELS = [
+    { name:"中1", cefr:"A1",     words:"30〜50語",   note:"be動詞・一般動詞の現在形が中心" },
+    { name:"中2", cefr:"A1〜A2", words:"50〜70語",   note:"過去形・未来表現・助動詞が中心" },
+    { name:"中3", cefr:"A2",     words:"60〜90語",   note:"現在完了・受動態・関係代名詞の初歩" },
+    { name:"高1", cefr:"A2〜B1", words:"80〜110語",  note:"関係詞・分詞・比較などを一通り含む" },
+    { name:"高2", cefr:"B1",     words:"100〜140語", note:"仮定法・分詞構文などやや複雑な構文" },
+    { name:"高3", cefr:"B1〜B2", words:"120〜170語", note:"抽象的な内容・推論を要する読解" },
+  ];
+  function levelInfo(name){
+    return LEVELS.find(l=>l.name===name) || LEVELS[3];
+  }
+
+  // 通常問題（つまずきマップに依存しない）用プロンプトの組み立て
+  //   plan: [{tag, n}, ...]（出題したいタグと問題数）, levelName: 難易度
+  function buildCustomPrompt(plan, levelName){
+    const lv=levelInfo(levelName);
+    const total=plan.reduce((a,p)=>a+p.n,0);
+    const tagLines=plan.map(p=>
+      ` - ${TAG_JA[p.tag]}（${p.tag}）：${p.n}問`).join('\n');
+    return `あなたは英語の問題作成者です。
+次の条件で英文読解問題を合計${total}問作成してください。
+
+【対象の学年・レベル】${lv.name}（CEFR ${lv.cefr} 相当）
+【レベルの目安】${lv.note}
+【出題する文法・読解要素と問題数】
+${tagLines}
+【各問題に含めるもの】
+ - ${lv.words}程度の英文パッセージ
+ - その英文に関する設問1つ（4択）
+ - 正解と、なぜその選択肢が正解かの解説
+ - その問題がどの要素（上記のタグ名）を問うているかの明示
+【難易度】指定した学年レベルに揃え、問題ごとのばらつきを抑えること。
 出力はそのまま生徒に配布できる形式で。`;
   }
 
@@ -1325,7 +1471,9 @@ ${body}`;
     root.querySelectorAll('.step-tab').forEach(tab=>{
       tab.onclick=()=>{
         const s=+tab.dataset.step;
-        if(s>0&&!state.data) return;
+        // 本番モードのSTEP5（通常問題生成）はデータ未入力でも開ける
+        const step5Open = (state.appMode==='live' && s===4);
+        if(s>0 && !state.data && !step5Open) return;
         if(state.appMode==='live'&&s===3) return; // 本番はリカバリー無効
         state.step=s; render();
       };
@@ -1517,6 +1665,31 @@ ${body}`;
     });
     const ep=root.querySelector('#export-plan');
     if(ep) ep.onclick=exportPlan;
+
+    // STEP5-B 通常問題生成：難易度ボタン
+    root.querySelectorAll('.level-btn').forEach(b=>{
+      b.onclick=()=>{
+        state.customGen.level=b.dataset.level;
+        render();
+      };
+    });
+    // STEP5-B 通常問題生成：タグ出題数の増減（＋－）
+    root.querySelectorAll('.cg-plus').forEach(b=>{
+      b.onclick=()=>{
+        const t=b.dataset.cgtag;
+        const cur=state.customGen.counts[t]||0;
+        state.customGen.counts[t]=Math.min(20,cur+1);
+        render();
+      };
+    });
+    root.querySelectorAll('.cg-minus').forEach(b=>{
+      b.onclick=()=>{
+        const t=b.dataset.cgtag;
+        const cur=state.customGen.counts[t]||0;
+        state.customGen.counts[t]=Math.max(0,cur-1);
+        render();
+      };
+    });
 
     // STEP2 つまずきマップの回めくり（◀▶）
     const mapPrev=root.querySelector('#map-prev');
