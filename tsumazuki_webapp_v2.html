@@ -1,0 +1,1154 @@
+<!-- つまずきマップ研究 Webアプリ版 v2：ダミー/本番モード + 問題生成 -->
+<div id="app-root"></div>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Spline+Sans+Mono:wght@400;600&display=swap');
+
+  #app-root {
+    --ink: #1a2233;
+    --paper: #f4f1ea;
+    --card: #ffffff;
+    --line: #d8d2c4;
+    --accent: #b5462f;
+    --accent2: #2f5d62;
+    --good: #2f7d4f;
+    --warn: #c98a2b;
+    --bad: #b5462f;
+    --mute: #8a8474;
+    --dummy: #2f5d62;
+    --live: #b5462f;
+    font-family: 'Zen Kaku Gothic New', sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+    background-image: radial-gradient(var(--line) 0.6px, transparent 0.6px);
+    background-size: 22px 22px;
+    padding: 24px 20px 60px;
+    line-height: 1.7;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  #app-root * { box-sizing: border-box; }
+
+  .hdr { border-bottom: 3px solid var(--ink); padding-bottom: 12px; margin-bottom: 14px; }
+  .hdr h1 { font-size: 1.55rem; font-weight: 700; margin: 0 0 3px; letter-spacing: -0.01em; }
+  .hdr .sub { color: var(--mute); font-size: 0.84rem; }
+
+  /* モード切替 */
+  .mode-switch {
+    display: flex; gap: 0; margin: 14px 0 6px; border: 2px solid var(--ink);
+    border-radius: 4px; overflow: hidden; width: fit-content;
+  }
+  .mode-btn {
+    padding: 9px 22px; cursor: pointer; font-weight: 700; font-size: 0.9rem;
+    background: var(--card); border: none; transition: all .15s;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .mode-btn:first-child { border-right: 2px solid var(--ink); }
+  .mode-btn .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .mode-btn[data-mode=dummy] .dot { background: var(--dummy); }
+  .mode-btn[data-mode=live] .dot { background: var(--live); }
+  .mode-btn.active[data-mode=dummy] { background: var(--dummy); color: #fff; }
+  .mode-btn.active[data-mode=dummy] .dot { background: #fff; }
+  .mode-btn.active[data-mode=live] { background: var(--live); color: #fff; }
+  .mode-btn.active[data-mode=live] .dot { background: #fff; }
+
+  .mode-banner {
+    font-size: 0.8rem; padding: 7px 14px; border-radius: 3px; margin-bottom: 16px;
+    font-weight: 500;
+  }
+  .mode-banner.dummy { background: #e3eded; color: var(--dummy);
+    border-left: 4px solid var(--dummy); }
+  .mode-banner.live { background: #f6e4df; color: var(--live);
+    border-left: 4px solid var(--live); }
+
+  .steps { display: flex; gap: 5px; margin: 0 0 22px; flex-wrap: wrap; }
+  .step-tab {
+    flex: 1; min-width: 120px; border: 1.5px solid var(--line);
+    background: var(--card); padding: 9px 11px; cursor: pointer;
+    border-radius: 3px; transition: all .15s;
+  }
+  .step-tab:hover { border-color: var(--accent2); }
+  .step-tab.active { border-color: var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+  .step-tab .n {
+    font-family: 'Spline Sans Mono', monospace; font-size: 0.68rem;
+    color: var(--accent); font-weight: 600;
+  }
+  .step-tab .t { font-size: 0.85rem; font-weight: 500; }
+  .step-tab.done .n::after { content: ' ✓'; color: var(--good); }
+  .step-tab.locked { opacity: .45; cursor: not-allowed; }
+
+  .panel { display: none; }
+  .panel.active { display: block; animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .card {
+    background: var(--card); border: 1.5px solid var(--line);
+    border-radius: 4px; padding: 19px 21px; margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 1.02rem; margin: 0 0 4px; font-weight: 700;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .card h2 .tag {
+    font-family: 'Spline Sans Mono', monospace; font-size: 0.66rem;
+    background: var(--ink); color: var(--paper); padding: 2px 7px;
+    border-radius: 2px; font-weight: 600;
+  }
+  .card .desc { color: var(--mute); font-size: 0.84rem; margin-bottom: 13px; }
+
+  .ctrl-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+    gap: 13px 18px; margin: 14px 0;
+  }
+  .ctrl label { font-size: 0.79rem; font-weight: 500; display: block; margin-bottom: 3px; }
+  .ctrl .val {
+    font-family: 'Spline Sans Mono', monospace; color: var(--accent);
+    font-weight: 600; float: right;
+  }
+  .ctrl input[type=range] { width: 100%; accent-color: var(--accent2); }
+  .ctrl .hint { font-size: 0.71rem; color: var(--mute); }
+
+  button.run {
+    font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 700;
+    background: var(--ink); color: var(--paper); border: none;
+    padding: 10px 20px; font-size: 0.9rem; cursor: pointer;
+    border-radius: 3px; box-shadow: 3px 3px 0 var(--accent);
+    transition: transform .1s; margin-right: 8px;
+  }
+  button.run:hover { transform: translate(-1px,-1px); }
+  button.run:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--accent); }
+  button.ghost {
+    background: transparent; color: var(--ink); border: 1.5px solid var(--ink);
+    box-shadow: none; padding: 8px 15px; font-size: 0.82rem; font-weight: 500;
+    border-radius: 3px; cursor: pointer; margin-right: 8px;
+  }
+  button.ghost:hover { background: var(--ink); color: var(--paper); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+
+  .metrics { display: flex; gap: 12px; flex-wrap: wrap; margin: 13px 0; }
+  .metric {
+    flex: 1; min-width: 110px; border: 1.5px solid var(--line);
+    border-radius: 3px; padding: 11px 13px; background: var(--paper);
+  }
+  .metric .k { font-size: 0.71rem; color: var(--mute); }
+  .metric .v {
+    font-family: 'Spline Sans Mono', monospace; font-size: 1.4rem;
+    font-weight: 600; line-height: 1.2;
+  }
+  .metric .v.good { color: var(--good); }
+  .metric .v.warn { color: var(--warn); }
+  .metric .v.bad { color: var(--bad); }
+
+  .bar-row { display: flex; align-items: center; gap: 9px; margin: 5px 0; }
+  .bar-row .lbl {
+    width: 138px; font-size: 0.76rem; text-align: right;
+    font-family: 'Spline Sans Mono', monospace; line-height: 1.25;
+  }
+  .bar-track {
+    flex: 1; height: 21px; background: var(--paper);
+    border: 1px solid var(--line); border-radius: 2px; position: relative;
+  }
+  .bar-fill { height: 100%; border-radius: 1px; transition: width .5s ease; }
+  .bar-row .pct {
+    width: 88px; font-size: 0.74rem; font-family: 'Spline Sans Mono', monospace;
+  }
+
+  svg.scatter { width: 100%; max-width: 420px; display: block; margin: 8px auto; }
+
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 0.81rem; margin-top: 9px; }
+  table.cmp th, table.cmp td {
+    border: 1px solid var(--line); padding: 5px 8px; text-align: right;
+  }
+  table.cmp th { background: var(--ink); color: var(--paper); font-weight: 500; }
+  table.cmp td:first-child, table.cmp th:first-child {
+    text-align: left; font-family: 'Spline Sans Mono', monospace;
+  }
+  table.cmp tr:nth-child(even) td { background: var(--paper); }
+
+  .callout {
+    border-left: 4px solid var(--accent2); background: #eef2f1;
+    padding: 10px 15px; font-size: 0.84rem; margin: 13px 0; border-radius: 0 3px 3px 0;
+  }
+  .callout.warn { border-color: var(--warn); background: #faf3e6; }
+  .callout b { font-weight: 700; }
+
+  .empty { color: var(--mute); font-size: 0.84rem; font-style: italic;
+    text-align: center; padding: 28px; }
+  .legend { font-size: 0.73rem; color: var(--mute); margin-top: 8px; }
+  .legend span { display: inline-block; margin-right: 13px; }
+  .swatch { display: inline-block; width: 11px; height: 11px;
+    border-radius: 2px; vertical-align: middle; margin-right: 3px; }
+
+  /* 本番モード入力 */
+  .input-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .itab {
+    padding: 7px 14px; border: 1.5px solid var(--line); border-radius: 3px;
+    cursor: pointer; font-size: 0.82rem; font-weight: 500; background: var(--card);
+  }
+  .itab.active { border-color: var(--ink); background: var(--ink); color: #fff; }
+  .grid-input { overflow-x: auto; margin: 10px 0; }
+  table.entry { border-collapse: collapse; font-size: 0.76rem; }
+  table.entry th, table.entry td {
+    border: 1px solid var(--line); padding: 0; text-align: center; min-width: 38px;
+  }
+  table.entry th {
+    background: var(--ink); color: #fff; padding: 4px 6px; font-weight: 500;
+    font-family: 'Spline Sans Mono', monospace; position: sticky; top: 0;
+  }
+  table.entry th.qhdr { cursor: help; }
+  table.entry td.sid {
+    background: var(--paper); font-family: 'Spline Sans Mono', monospace;
+    padding: 3px 8px; font-weight: 600; white-space: nowrap;
+  }
+  .cell-btn {
+    width: 100%; height: 28px; border: none; cursor: pointer; font-size: 0.8rem;
+    font-family: 'Spline Sans Mono', monospace; background: var(--card);
+  }
+  .cell-btn.c1 { background: #d6ead9; color: var(--good); font-weight: 700; }
+  .cell-btn.c0 { background: #f2dcd7; color: var(--bad); font-weight: 700; }
+  .cell-btn.cx { background: var(--card); color: var(--line); }
+
+  .dropzone {
+    border: 2px dashed var(--line); border-radius: 5px; padding: 26px;
+    text-align: center; color: var(--mute); font-size: 0.85rem;
+    cursor: pointer; transition: all .15s; background: var(--card);
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--accent2); background: #eef2f1; }
+  .dropzone b { color: var(--ink); }
+
+  .qgen-block {
+    border: 1.5px solid var(--line); border-radius: 4px; padding: 13px 15px;
+    margin: 9px 0; background: var(--paper);
+  }
+  .qgen-block .qg-head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-weight: 700; font-size: 0.88rem; margin-bottom: 6px;
+  }
+  .qg-pill {
+    font-family: 'Spline Sans Mono', monospace; font-size: 0.7rem;
+    padding: 2px 8px; border-radius: 10px; color: #fff;
+  }
+  .prompt-box {
+    background: var(--ink); color: #e8e4d8; font-family: 'Spline Sans Mono', monospace;
+    font-size: 0.74rem; padding: 13px 15px; border-radius: 4px; margin-top: 8px;
+    white-space: pre-wrap; line-height: 1.6; position: relative;
+  }
+  .copy-btn {
+    position: absolute; top: 8px; right: 8px; font-size: 0.68rem;
+    background: var(--accent); color: #fff; border: none; padding: 3px 9px;
+    border-radius: 3px; cursor: pointer; font-family: 'Zen Kaku Gothic New';
+  }
+  .seg-bar { display: flex; height: 26px; border-radius: 3px; overflow: hidden;
+    border: 1px solid var(--line); margin: 8px 0; }
+  .seg { display: flex; align-items: center; justify-content: center;
+    font-size: 0.68rem; color: #fff; font-family: 'Spline Sans Mono', monospace; }
+  .navbtns { display: flex; justify-content: flex-end; margin-top: 6px; gap: 6px; }
+  .small { font-size: 0.78rem; color: var(--mute); }
+</style>
+
+<script>
+(function () {
+  const root = document.getElementById('app-root');
+
+  // ============================================================
+  // 共通定義
+  // ============================================================
+  const TAGS = ["vocabulary","idiom","tense","relative-clause",
+                "participle","sentence-structure","reference","inference"];
+  const TAG_JA = {
+    "vocabulary":"語彙","idiom":"熟語","tense":"時制",
+    "relative-clause":"関係詞","participle":"分詞","sentence-structure":"文構造",
+    "reference":"指示語","inference":"推論"
+  };
+  const CLASS_BASELINE = {
+    "vocabulary":0.75,"idiom":0.60,"tense":0.70,"relative-clause":0.35,
+    "participle":0.40,"sentence-structure":0.55,"reference":0.65,"inference":0.45
+  };
+  const AI_CONFUSION = { "participle":"relative-clause", "inference":"reference" };
+
+  function makeRng(seed){let s=seed>>>0;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};}
+  function gauss(rng,m,sd){const u1=Math.max(rng(),1e-9),u2=rng();
+    return m+sd*Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);}
+  const clip01 = x => Math.min(0.98, Math.max(0.02, x));
+
+  // ---- ダミーデータ生成（中程度モデル） ----
+  function generate(cfg){
+    const rng = makeRng(cfg.seed);
+    const ability=[], gain=[];
+    for(let s=0;s<cfg.nStudents;s++){
+      ability.push(gauss(rng,0,cfg.spread));
+      gain.push(Math.max(0,gauss(rng,cfg.gain,0.03)));
+    }
+    const truth=[];
+    for(let s=0;s<cfg.nStudents;s++){
+      truth.push([]);
+      for(let t=1;t<=cfg.nTests;t++){
+        const row={};
+        for(const tag of TAGS){
+          const base=CLASS_BASELINE[tag]+ability[s];
+          row[tag]=clip01(base+gain[s]*(t-1)+gauss(rng,0,0.04));
+        }
+        truth[s].push(row);
+      }
+    }
+    const questions=[];
+    for(let t=1;t<=cfg.nTests;t++){
+      for(let q=1;q<=cfg.nQ;q++){
+        const nTag=rng()<0.7?1:2;
+        const pool=TAGS.slice(), chosen=[];
+        for(let i=0;i<nTag;i++) chosen.push(pool.splice(Math.floor(rng()*pool.length),1)[0]);
+        let aiSet=new Set(chosen);
+        if(rng()<0.20){
+          const r=rng();
+          if(r<0.34){for(const c of[...aiSet])if(AI_CONFUSION[c]){aiSet.delete(c);aiSet.add(AI_CONFUSION[c]);}}
+          else if(r<0.67&&aiSet.size>1){aiSet.delete([...aiSet][Math.floor(rng()*aiSet.size)]);}
+          else{aiSet.add(TAGS[Math.floor(rng()*TAGS.length)]);}
+        }
+        questions.push({test:t,q:q,teacher:chosen,ai:[...aiSet]});
+      }
+    }
+    const responses=[];
+    for(const qq of questions){
+      for(let s=0;s<cfg.nStudents;s++){
+        const p=qq.teacher.reduce((a,tg)=>a+truth[s][qq.test-1][tg],0)/qq.teacher.length;
+        responses.push({test:qq.test,q:qq.q,student:s,correct:rng()<p?1:0});
+      }
+    }
+    return {truth,questions,responses,cfg,mode:'dummy'};
+  }
+
+  // ---- 分析関数（両モード共通） ----
+  function buildMap(data,upToTest){
+    const acc={}; TAGS.forEach(t=>acc[t]={sum:0,n:0});
+    const qmap={}; data.questions.forEach(q=>qmap[q.test+'_'+q.q]=q);
+    for(const r of data.responses){
+      if(r.test>upToTest) continue;
+      if(r.correct===null||r.correct===undefined) continue;
+      const q=qmap[r.test+'_'+r.q]; if(!q) continue;
+      for(const tg of q.teacher){acc[tg].sum+=r.correct;acc[tg].n++;}
+    }
+    const out={}; TAGS.forEach(t=>out[t]=acc[t].n?acc[t].sum/acc[t].n:null);
+    return out;
+  }
+  function truthMean(data,upToTest){
+    const out={};
+    TAGS.forEach(tg=>{
+      let sum=0,n=0;
+      for(let s=0;s<data.cfg.nStudents;s++)
+        for(let t=0;t<upToTest;t++){sum+=data.truth[s][t][tg];n++;}
+      out[tg]=sum/n;
+    });
+    return out;
+  }
+  function tagAgreement(data){
+    let sum=0,perfect=0,evaluated=0;
+    for(const q of data.questions){
+      if(!q.ai||q.ai.length===0) continue;
+      const a=new Set(q.teacher),b=new Set(q.ai);
+      const inter=[...a].filter(x=>b.has(x)).length;
+      const uni=new Set([...a,...b]).size;
+      const j=uni?inter/uni:1;
+      sum+=j; if(j===1)perfect++; evaluated++;
+    }
+    return {mean:evaluated?sum/evaluated:0,perfect,total:evaluated};
+  }
+  function pearson(x,y){
+    const n=x.length,mx=x.reduce((a,b)=>a+b)/n,my=y.reduce((a,b)=>a+b)/n;
+    let sxy=0,sxx=0,syy=0;
+    for(let i=0;i<n;i++){const dx=x[i]-mx,dy=y[i]-my;sxy+=dx*dy;sxx+=dx*dx;syy+=dy*dy;}
+    return sxy/Math.sqrt(sxx*syy||1e-9);
+  }
+  function recovery(data,upToTest){
+    const est=buildMap(data,upToTest),tru=truthMean(data,upToTest);
+    let errSum=0,sqSum=0,n=0; const ex=[],ey=[];
+    TAGS.forEach(tg=>{
+      if(est[tg]===null) return;
+      const e=est[tg]-tru[tg];
+      errSum+=Math.abs(e);sqSum+=e*e;n++;ex.push(tru[tg]);ey.push(est[tg]);
+    });
+    return {mae:errSum/n,rmse:Math.sqrt(sqSum/n),corr:pearson(ex,ey),est,tru};
+  }
+
+  // ============================================================
+  // 状態
+  // ============================================================
+  let state = {
+    appMode: 'dummy',                 // 'dummy' | 'live'
+    cfg: { seed:42, nStudents:35, nTests:3, nQ:20, spread:0.12, gain:0.06 },
+    data: null,                       // 分析対象データ（生成 or 入力）
+    step: 0,
+    inputTab: 'grid',                 // 本番モードの入力方式
+    live: { nStudents:10, nQ:10, questions:[], grid:[] }
+  };
+
+  const STEPS = [
+    { n:"STEP 1", t:"データ準備" },
+    { n:"STEP 2", t:"つまずきマップ" },
+    { n:"STEP 3", t:"AIタグ検証" },
+    { n:"STEP 4", t:"リカバリー検証" },
+    { n:"STEP 5", t:"問題自動生成" }
+  ];
+
+  // ============================================================
+  // メイン描画
+  // ============================================================
+  function render(){
+    const isDummy = state.appMode==='dummy';
+    root.innerHTML = `
+      <div class="hdr">
+        <h1>つまずきマップ研究シミュレータ</h1>
+        <div class="sub">英語読解のAI活用授業 ／ 弱点分析・AIタグ検証・問題自動生成</div>
+      </div>
+      <div class="mode-switch">
+        <button class="mode-btn ${isDummy?'active':''}" data-mode="dummy">
+          <span class="dot"></span>ダミーモード</button>
+        <button class="mode-btn ${!isDummy?'active':''}" data-mode="live">
+          <span class="dot"></span>本番モード</button>
+      </div>
+      <div class="mode-banner ${isDummy?'dummy':'live'}">
+        ${isDummy
+          ? '◆ ダミーモード：仮想データでシステムを検証中。実在の生徒データではありません。'
+          : '◆ 本番モード：実際の生徒の解答を入力します。真値が無いためリカバリー検証は行いません。'}
+      </div>
+      <div class="steps">
+        ${STEPS.map((s,i)=>{
+          const locked = (i>0 && !state.data);
+          const hideRecovery = (!isDummy && i===3);
+          return `<div class="step-tab ${state.step===i?'active':''}
+            ${state.data&&i>0?'done':''} ${locked?'locked':''}"
+            data-step="${i}" ${hideRecovery?'style="opacity:.3"':''}>
+            <div class="n">${s.n}</div>
+            <div class="t">${hideRecovery?'(本番では省略)':s.t}</div></div>`;
+        }).join('')}
+      </div>
+      <div id="panels">
+        ${panelData()}
+        ${panelMap()}
+        ${panelAgree()}
+        ${panelRecovery()}
+        ${panelQGen()}
+      </div>`;
+    bind();
+  }
+
+  // ---- STEP 1: データ準備（モードで中身が変わる） ----
+  function panelData(){
+    return `<div class="panel ${state.step===0?'active':''}" data-panel="0">
+      ${state.appMode==='dummy' ? dummyDataCard() : liveDataCard()}
+    </div>`;
+  }
+
+  function dummyDataCard(){
+    const c=state.cfg;
+    return `<div class="card">
+      <h2><span class="tag">STEP 1 / ダミー</span>仮想クラスを生成</h2>
+      <div class="desc">生徒に「タグ別の本当の理解度」を持たせ、テスト回ごとに学習で伸ばし、
+      理解度を成功確率として正誤を確率的に生成します。実生徒に解かせる前のシステム検証用です。</div>
+      <div class="ctrl-grid">
+        <div class="ctrl"><label>生徒数<span class="val" id="v-st">${c.nStudents}</span></label>
+          <input type="range" id="r-st" min="10" max="40" value="${c.nStudents}">
+          <div class="hint">1クラスの人数</div></div>
+        <div class="ctrl"><label>テスト回数<span class="val" id="v-ts">${c.nTests}</span></label>
+          <input type="range" id="r-ts" min="1" max="6" value="${c.nTests}">
+          <div class="hint">学期内の実施回数</div></div>
+        <div class="ctrl"><label>1回の問題数<span class="val" id="v-q">${c.nQ}</span></label>
+          <input type="range" id="r-q" min="5" max="40" value="${c.nQ}">
+          <div class="hint">テスト1回あたり</div></div>
+        <div class="ctrl"><label>能力差<span class="val" id="v-sp">${c.spread.toFixed(2)}</span></label>
+          <input type="range" id="r-sp" min="0" max="25" value="${Math.round(c.spread*100)}">
+          <div class="hint">生徒間のばらつき</div></div>
+        <div class="ctrl"><label>学習の伸び<span class="val" id="v-gn">${c.gain.toFixed(2)}</span></label>
+          <input type="range" id="r-gn" min="0" max="15" value="${Math.round(c.gain*100)}">
+          <div class="hint">テスト1回ごとの向上</div></div>
+        <div class="ctrl"><label>乱数シード<span class="val" id="v-sd">${c.seed}</span></label>
+          <input type="range" id="r-sd" min="1" max="100" value="${c.seed}">
+          <div class="hint">同じ値なら再現可能</div></div>
+      </div>
+      <div class="callout">弱点として <b>関係詞・分詞・推論</b> の3タグを仕込んであります。
+      分析がこれを当てられるか後のステップで確認します。</div>
+      <button class="run" id="gen">ダミークラスを生成</button>
+      <div id="gen-result"></div>
+    </div>`;
+  }
+
+  function liveDataCard(){
+    const lv=state.live;
+    let inputArea='';
+    if(state.inputTab==='grid'){
+      inputArea = gridInputHTML();
+    } else {
+      inputArea = `
+        <div class="dropzone" id="dropzone">
+          CSVファイルをここにドラッグ&ドロップ、または<b>クリックして選択</b><br>
+          <span class="small">形式: test_id, question_id, student_id, correct（1=正解/0=不正解）</span>
+          <input type="file" id="fileinp" accept=".csv" style="display:none">
+        </div>
+        <div style="margin-top:8px">
+          <button class="ghost" id="dl-template">入力用CSVテンプレートを保存</button>
+          <span class="small" id="csv-status"></span>
+        </div>`;
+    }
+    return `<div class="card">
+      <h2><span class="tag">STEP 1 / 本番</span>生徒の解答を入力</h2>
+      <div class="desc">実際のテストの採点結果を入力します。問題ごとに教師がタグ付けし、
+      生徒の正誤を入れると、つまずきマップ（STEP 2）とAIタグ検証（STEP 3）に進めます。</div>
+      <div class="ctrl-grid" style="grid-template-columns:repeat(2,1fr);max-width:420px">
+        <div class="ctrl"><label>生徒数<span class="val" id="lv-st">${lv.nStudents}</span></label>
+          <input type="range" id="rl-st" min="3" max="40" value="${lv.nStudents}">
+          <div class="hint">入力する人数</div></div>
+        <div class="ctrl"><label>問題数<span class="val" id="lv-q">${lv.nQ}</span></label>
+          <input type="range" id="rl-q" min="3" max="30" value="${lv.nQ}">
+          <div class="hint">テストの問題数</div></div>
+      </div>
+      <div class="input-tabs">
+        <div class="itab ${state.inputTab==='grid'?'active':''}" data-itab="grid">表に手入力</div>
+        <div class="itab ${state.inputTab==='csv'?'active':''}" data-itab="csv">CSVを読み込む</div>
+      </div>
+      ${inputArea}
+      <div class="callout warn">本番モードでは生徒の「本当の理解度」は誰も知りません。
+      そのため<b>リカバリー検証（STEP 4）は行えません</b>。代わりに実データでのAIタグ精度を確認します。</div>
+      <button class="run" id="live-apply">この内容で分析する</button>
+      <div id="live-result"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="tag">STEP 1b / 本番</span>AIにタグ付けさせる（STEP 3用）</h2>
+      <div class="desc">STEP 3 のAIタグ検証を行うには、AIがつけたタグが必要です。
+      ここで問題文を貼り付けるとタグ付け依頼プロンプトを自動生成します。
+      それをChatGPTやClaudeに渡し、返ってきた結果をこのアプリに取り込みます。</div>
+      <div class="small" style="margin-bottom:4px;font-weight:500">
+        &#9312; 問題文を貼り付け（任意。空でもプロンプトは作れます）</div>
+      <textarea id="qtext" placeholder="Q1: ここに英文と設問を貼り付け&#10;Q2: &hellip;"
+        style="width:100%;min-height:80px;font-family:'Spline Sans Mono',monospace;
+        font-size:.78rem;padding:8px;border:1.5px solid var(--line);border-radius:3px;
+        resize:vertical"></textarea>
+      <div style="margin:8px 0">
+        <button class="ghost" id="make-tagprompt">タグ付けプロンプトを作る</button>
+      </div>
+      <div id="tagprompt-area"></div>
+      <div class="small" style="margin:10px 0 4px;font-weight:500">
+        &#9313; AIの返答（Q1: tag;tag 形式）をここに貼り付けて取り込む</div>
+      <textarea id="aireply" placeholder="Q1: relative-clause;detail&#10;Q2: vocabulary"
+        style="width:100%;min-height:70px;font-family:'Spline Sans Mono',monospace;
+        font-size:.78rem;padding:8px;border:1.5px solid var(--line);border-radius:3px;
+        resize:vertical"></textarea>
+      <div style="margin-top:8px">
+        <button class="ghost" id="import-aitags">AIタグを取り込む</button>
+        <span class="small" id="aitag-status"></span>
+      </div>
+    </div>`;
+  }
+
+  // 本番モード：手入力グリッド
+  function gridInputHTML(){
+    const lv=state.live;
+    // 問題のタグ設定行 + 生徒×問題の正誤グリッド
+    let qhdr='<th>生徒＼問題</th>';
+    for(let q=0;q<lv.nQ;q++){
+      const tags=lv.questions[q]||{teacher:[],ai:[]};
+      qhdr+=`<th class="qhdr" title="クリックで教師タグを設定">Q${q+1}<br>
+        <span style="font-size:.62rem;color:#bbb">${tags.teacher.map(t=>TAG_JA[t]).join('/')||'タグ未設定'}</span></th>`;
+    }
+    let body='';
+    for(let s=0;s<lv.nStudents;s++){
+      body+=`<tr><td class="sid">S${String(s+1).padStart(2,'0')}</td>`;
+      for(let q=0;q<lv.nQ;q++){
+        const v=(lv.grid[s]&&lv.grid[s][q]!==undefined)?lv.grid[s][q]:null;
+        const cls=v===1?'c1':v===0?'c0':'cx';
+        const label=v===1?'○':v===0?'×':'－';
+        body+=`<td><button class="cell-btn ${cls}" data-s="${s}" data-q="${q}">${label}</button></td>`;
+      }
+      body+='</tr>';
+    }
+    return `<div class="small" style="margin-bottom:6px">
+      セルをクリックで ○(正解)→×(不正解)→－(未入力) と切替。
+      問題のヘッダ Q1… をクリックでタグを設定してください。</div>
+      <div class="grid-input"><table class="entry">
+      <thead><tr>${qhdr}</tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  // ---- STEP 2: つまずきマップ ----
+  function panelMap(){
+    let body=`<div class="empty">STEP 1 でデータを準備してください。</div>`;
+    if(state.data){
+      const map=buildMap(state.data,state.data.cfg.nTests);
+      const valid=TAGS.filter(t=>map[t]!==null);
+      const sorted=valid.slice().sort((a,b)=>map[a]-map[b]);
+      if(sorted.length===0){
+        body=`<div class="empty">有効なタグ付き問題がありません。問題にタグを設定してください。</div>`;
+      } else {
+        body=`<div class="desc">教師タグを正として、タグ別のクラス平均正答率を出します。
+        低いタグ＝クラスの弱点。これが「つまずきマップ」です。</div>
+        ${sorted.map(tg=>{
+          const v=map[tg];
+          const col=v<0.5?'var(--bad)':v<0.7?'var(--warn)':'var(--good)';
+          return `<div class="bar-row">
+            <div class="lbl">${tg}<br><span style="font-family:'Zen Kaku Gothic New';font-size:.68rem;color:var(--mute)">${TAG_JA[tg]}</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:${v*100}%;background:${col}"></div></div>
+            <div class="pct">${(v*100).toFixed(1)}%</div></div>`;
+        }).join('')}
+        <div class="legend">
+          <span><span class="swatch" style="background:var(--bad)"></span>弱点 (〜50%)</span>
+          <span><span class="swatch" style="background:var(--warn)"></span>要強化 (50-70%)</span>
+          <span><span class="swatch" style="background:var(--good)"></span>定着 (70%〜)</span></div>
+        <div class="callout">最下位3タグ：<b>${sorted.slice(0,3).map(t=>TAG_JA[t]).join('・')}</b>
+        がこのクラスの弱点です。STEP 5 でこのタグに連動した問題生成計画を作れます。</div>`;
+      }
+    }
+    return `<div class="panel ${state.step===1?'active':''}" data-panel="1">
+      <div class="card"><h2><span class="tag">STEP 2</span>つまずきマップ</h2>${body}</div></div>`;
+  }
+
+  // ---- STEP 3: AIタグ検証 ----
+  function panelAgree(){
+    let body=`<div class="empty">STEP 1 でデータを準備してください。</div>`;
+    if(state.data){
+      const ag=tagAgreement(state.data);
+      if(ag.total===0){
+        body=`<div class="empty">AIタグが未設定です。${state.appMode==='live'
+          ?'本番モードでAIタグ検証を行うには、各問題にAIタグも入力してください（今回は省略可）。'
+          :''}</div>`;
+      } else {
+        const cls=ag.mean>0.85?'good':ag.mean>0.7?'warn':'bad';
+        const stat={}; TAGS.forEach(t=>stat[t]={tp:0,fn:0,fp:0});
+        state.data.questions.forEach(q=>{
+          if(!q.ai||q.ai.length===0) return;
+          const ts=new Set(q.teacher),as=new Set(q.ai);
+          TAGS.forEach(t=>{
+            if(ts.has(t)&&as.has(t))stat[t].tp++;
+            else if(ts.has(t)&&!as.has(t))stat[t].fn++;
+            else if(!ts.has(t)&&as.has(t))stat[t].fp++;
+          });
+        });
+        body=`<div class="desc">生成AIにタグ付けさせた結果と教師タグの一致度を測ります。
+        AIにタグ付けを任せてよいかの検証で、発表の新規性の核です。</div>
+        <div class="metrics">
+          <div class="metric"><div class="k">平均Jaccard一致度</div>
+            <div class="v ${cls}">${ag.mean.toFixed(3)}</div></div>
+          <div class="metric"><div class="k">完全一致した問題</div>
+            <div class="v">${ag.perfect}/${ag.total}</div></div>
+        </div>
+        <table class="cmp"><tr><th>タグ</th><th>一致</th><th>AI見落とし</th><th>AI過剰付与</th></tr>
+        ${TAGS.map(t=>`<tr><td>${t}</td><td>${stat[t].tp}</td>
+          <td>${stat[t].fn}</td><td>${stat[t].fp}</td></tr>`).join('')}</table>
+        ${state.appMode==='dummy'?`<div class="callout warn">ダミーでは
+        <b>分詞→関係詞</b>、<b>推論→指示語</b> をAIが混同しやすく設定しています。</div>`:''}`;
+      }
+    }
+    return `<div class="panel ${state.step===2?'active':''}" data-panel="2">
+      <div class="card"><h2><span class="tag">STEP 3</span>AIタグ付けの信頼性</h2>${body}</div></div>`;
+  }
+
+  // ---- STEP 4: リカバリー検証（ダミー専用） ----
+  function panelRecovery(){
+    let body;
+    if(state.appMode==='live'){
+      body=`<div class="callout warn"><b>本番モードではこのステップは行いません。</b>
+      リカバリー検証は「仕込んだ真値」と推定値を照合する検証で、真値が存在するダミーモード専用です。
+      実データの妥当性は STEP 3（AIタグ検証）で確認します。</div>`;
+    } else if(!state.data){
+      body=`<div class="empty">STEP 1 でダミークラスを生成してください。</div>`;
+    } else {
+      const full=recovery(state.data,state.data.cfg.nTests);
+      const corrCls=full.corr>0.9?'good':full.corr>0.75?'warn':'bad';
+      const maeCls=full.mae<0.05?'good':full.mae<0.1?'warn':'bad';
+      const series=[];
+      for(let k=1;k<=state.data.cfg.nTests;k++) series.push({k,...recovery(state.data,k)});
+      body=`<div class="desc">最初に仕込んだ「本当の理解度」と、マップが正答率から推定した値を照合します。
+      真値を知っているのはダミーだからこそ。実生徒では不可能な検証です。</div>
+      <div class="metrics">
+        <div class="metric"><div class="k">真値との相関</div>
+          <div class="v ${corrCls}">${full.corr.toFixed(3)}</div></div>
+        <div class="metric"><div class="k">平均絶対誤差 MAE</div>
+          <div class="v ${maeCls}">${full.mae.toFixed(3)}</div></div>
+        <div class="metric"><div class="k">RMSE</div>
+          <div class="v">${full.rmse.toFixed(3)}</div></div>
+      </div>
+      ${scatterSVG(full)}
+      <h2 style="font-size:.9rem;margin:16px 0 4px">テスト回数と推定精度</h2>
+      <div class="desc">回数を増やすと誤差が下がるなら、実践に必要なテスト回数の目安になります。</div>
+      <table class="cmp"><tr><th>テスト回数</th><th>MAE（誤差）</th><th>相関</th></tr>
+      ${series.map(s=>`<tr><td>${s.k}回</td><td>${s.mae.toFixed(4)}</td>
+        <td>${s.corr.toFixed(4)}</td></tr>`).join('')}</table>`;
+    }
+    return `<div class="panel ${state.step===3?'active':''}" data-panel="3">
+      <div class="card"><h2><span class="tag">STEP 4</span>リカバリー検証</h2>${body}</div></div>`;
+  }
+
+  // ---- STEP 5: 問題自動生成（生成仕様の可視化） ----
+  function panelQGen(){
+    let body=`<div class="empty">STEP 1〜2 を済ませると、弱点に連動した出題計画を作成できます。</div>`;
+    if(state.data){
+      const map=buildMap(state.data,state.data.cfg.nTests);
+      const valid=TAGS.filter(t=>map[t]!==null);
+      if(valid.length>0){
+        // 弱点ほど多く出題する：出題数を正答率の低さに比例配分
+        const TOTAL=20;  // 生成する補習問題の総数
+        const weights={}; let wsum=0;
+        valid.forEach(t=>{ const w=Math.max(0.05,1-map[t]); weights[t]=w; wsum+=w; });
+        const plan=valid.map(t=>({
+          tag:t, acc:map[t],
+          n:Math.max(1,Math.round(TOTAL*weights[t]/wsum))
+        })).sort((a,b)=>a.acc-b.acc);
+        const planTotal=plan.reduce((a,p)=>a+p.n,0);
+
+        // 帯グラフ用の色
+        const palette=['#b5462f','#c98a2b','#7a6f54','#3f7d6e','#2f5d62','#46587a','#8a8474','#5a4a6a'];
+
+        body=`<div class="desc">つまずきマップの弱点に連動して、補習問題の<b>出題計画</b>を自動で立てます。
+        正答率が低いタグほど多く出題します。実際の英文生成は、下の生成プロンプトを
+        ChatGPTやClaudeに貼り付けて行います（このアプリはAPIに接続しません）。</div>
+
+        <h2 style="font-size:.9rem;margin:14px 0 4px">出題配分（合計${planTotal}問）</h2>
+        <div class="seg-bar">
+          ${plan.map((p,i)=>`<div class="seg" style="width:${p.n/planTotal*100}%;
+            background:${palette[i%palette.length]}" title="${TAG_JA[p.tag]} ${p.n}問">
+            ${p.n>=2?TAG_JA[p.tag]:''}</div>`).join('')}
+        </div>
+        <table class="cmp"><tr><th>タグ</th><th>クラス正答率</th><th>出題数</th><th>狙い</th></tr>
+        ${plan.map(p=>`<tr><td>${p.tag}</td><td>${(p.acc*100).toFixed(0)}%</td>
+          <td>${p.n}問</td><td style="text-align:left">${
+            p.acc<0.5?'最優先で強化':p.acc<0.7?'底上げ':'維持確認'}</td></tr>`).join('')}
+        </table>
+
+        <h2 style="font-size:.9rem;margin:18px 0 4px">生成AIに渡すプロンプト</h2>
+        <div class="desc">各弱点タグについて、生成AIにそのまま渡せる指示文を自動で組み立てました。
+        コピーして ChatGPT / Claude に貼り付けてください。</div>
+        ${plan.filter(p=>p.acc<0.7).map((p,i)=>{
+          const col=palette[i%palette.length];
+          return `<div class="qgen-block">
+            <div class="qg-head"><span>${TAG_JA[p.tag]}（${p.tag}）の強化問題</span>
+              <span class="qg-pill" style="background:${col}">${p.n}問</span></div>
+            <div class="prompt-box" id="pb-${p.tag}">${buildPrompt(p)}<button
+              class="copy-btn" data-copy="pb-${p.tag}">コピー</button></div>
+          </div>`;
+        }).join('')}
+
+        <div class="callout">この出題計画と生成問題を生徒に解かせ、次のテストで
+        同じタグの正答率が上がるかを追えば、案2（弱点連動型の効果測定）の実践になります。</div>
+        <div class="navbtns">
+          <button class="ghost" id="export-plan">出題計画をCSVで保存</button>
+        </div>`;
+      }
+    }
+    return `<div class="panel ${state.step===4?'active':''}" data-panel="4">
+      <div class="card"><h2><span class="tag">STEP 5</span>問題自動生成（出題計画）</h2>${body}</div></div>`;
+  }
+
+  // AIにタグ付けさせるためのプロンプトを組み立てる
+  // questionText: 教師が貼り付けた問題文（英文＋設問）。複数問まとめて渡せる。
+  function buildTaggingPrompt(questionText){
+    const tagList = TAGS.map(t=>` - ${t}（${TAG_JA[t]}）`).join('\n');
+    const body = questionText && questionText.trim()
+      ? questionText.trim()
+      : '（ここに問題文を貼り付けてください。複数問ある場合は Q1: … Q2: … のように番号を付ける）';
+    return `あなたは英語教育の専門家です。
+以下の英語読解問題それぞれについて、その問題が問うている文法・読解要素を、
+下の【タグ一覧】の中から選んでください。
+
+【タグ一覧】（この中の語だけを使うこと。一覧にない語は使わない）
+${tagList}
+
+【判定のルール】
+ - 1問につき1〜2個のタグを選ぶ（最も中心的に問われている要素を優先）
+ - 必ずタグ一覧の英語の語（vocabulary 等）で答える
+ - 各問題について、なぜそのタグを選んだか一文で理由も書く
+
+【出力形式】次の形式を厳守してください。
+Q1: tag1;tag2
+理由: …
+Q2: tag1
+理由: …
+
+【対象の問題】
+${body}`;
+  }
+
+  // AIの返答（Q1: tag;tag 形式）を解析して問題ごとのタグ配列にする
+  function parseTaggingReply(text){
+    const result = {};   // { 0: ['vocabulary'], 1: [...] }
+    // ハイフン入りタグを「スペース表記」でも照合できるよう対応表を作る
+    const norm = {};     // 'relative clause' -> 'relative-clause'
+    TAGS.forEach(t=>{ norm[t]=t; norm[t.replace(/-/g,' ')]=t; });
+    const lines = text.split(/\r?\n/);
+    for(const line of lines){
+      const m = line.match(/Q\s*(\d+)\s*[:：]\s*(.+)/i);
+      if(!m) continue;
+      const qi = parseInt(m[1],10) - 1;
+      // セミコロン・読点・スラッシュで区切る（スペースは区切らない）
+      const tags = m[2].split(/[;,；、\/]+/)
+        .map(s=>s.trim().toLowerCase())
+        .map(s=>norm[s])               // 正規化（一覧外は undefined）
+        .filter(Boolean);
+      if(qi>=0) result[qi] = [...new Set(tags)];
+    }
+    return result;
+  }
+
+  // 生成AI向けプロンプトの自動組み立て
+  function buildPrompt(p){
+    const levelNote = p.acc<0.5
+      ? 'このクラスはこの分野が大きな弱点です。基礎から段階的に。'
+      : 'このクラスはこの分野がやや弱いです。標準レベルで。';
+    return `あなたは高校英語の問題作成者です。
+次の条件で英文読解問題を${p.n}問作成してください。
+
+【強化したい文法・読解要素】${TAG_JA[p.tag]}（${p.tag}）
+【対象】高校生・クラス平均正答率${(p.acc*100).toFixed(0)}%
+【方針】${levelNote}
+【各問題に含めるもの】
+ - 80〜120語程度の英文パッセージ
+ - その英文に関する設問1つ（4択）
+ - 正解と、なぜその選択肢が正解かの解説
+ - この問題が「${p.tag}」を問うていることが分かる箇所の明示
+【難易度】${p.n}問すべて同程度の難易度に揃えること。
+出力はそのまま生徒に配布できる形式で。`;
+  }
+
+  // 散布図SVG
+  function scatterSVG(rec){
+    const W=420,H=420,pad=44;
+    const sx=v=>pad+v*(W-2*pad), sy=v=>H-pad-v*(H-2*pad);
+    let pts='';
+    TAGS.forEach(tg=>{
+      if(rec.est[tg]===null) return;
+      pts+=`<circle cx="${sx(rec.tru[tg])}" cy="${sy(rec.est[tg])}" r="6"
+        fill="#2f5d62" fill-opacity="0.75" stroke="#1a2233" stroke-width="0.7"/>`;
+    });
+    const ticks=[0,0.25,0.5,0.75,1]; let grid='';
+    ticks.forEach(t=>{
+      grid+=`<line x1="${sx(t)}" y1="${pad}" x2="${sx(t)}" y2="${H-pad}" stroke="#d8d2c4" stroke-width="0.7"/>
+        <line x1="${pad}" y1="${sy(t)}" x2="${W-pad}" y2="${sy(t)}" stroke="#d8d2c4" stroke-width="0.7"/>
+        <text x="${sx(t)}" y="${H-pad+15}" font-size="10" text-anchor="middle" fill="#8a8474" font-family="monospace">${t}</text>
+        <text x="${pad-7}" y="${sy(t)+3}" font-size="10" text-anchor="end" fill="#8a8474" font-family="monospace">${t}</text>`;
+    });
+    return `<svg class="scatter" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${pad}" y="${pad}" width="${W-2*pad}" height="${H-2*pad}" fill="#f4f1ea" stroke="#1a2233" stroke-width="1.2"/>
+      ${grid}
+      <line x1="${sx(0)}" y1="${sy(0)}" x2="${sx(1)}" y2="${sy(1)}" stroke="#b5462f" stroke-width="1.5" stroke-dasharray="5 4"/>
+      ${pts}
+      <text x="${W/2}" y="${H-7}" font-size="11" text-anchor="middle" fill="#1a2233">仕込んだ真の理解度</text>
+      <text x="13" y="${H/2}" font-size="11" text-anchor="middle" fill="#1a2233" transform="rotate(-90 13 ${H/2})">マップの推定値（正答率）</text>
+    </svg>`;
+  }
+
+  // ============================================================
+  // 本番モード：入力データを分析用 data 形式に変換
+  // ============================================================
+  function liveToData(){
+    const lv=state.live;
+    // questions: teacher/ai タグ。grid: 正誤
+    const questions=[], responses=[];
+    for(let q=0;q<lv.nQ;q++){
+      const tg=lv.questions[q]||{teacher:[],ai:[]};
+      questions.push({test:1,q:q+1,teacher:tg.teacher||[],ai:tg.ai||[]});
+    }
+    for(let s=0;s<lv.nStudents;s++){
+      for(let q=0;q<lv.nQ;q++){
+        const v=(lv.grid[s]&&lv.grid[s][q]!==undefined)?lv.grid[s][q]:null;
+        if(v===null) continue;
+        responses.push({test:1,q:q+1,student:s,correct:v});
+      }
+    }
+    return {
+      truth:null, questions, responses,
+      cfg:{nStudents:lv.nStudents,nTests:1,nQ:lv.nQ}, mode:'live'
+    };
+  }
+
+  // CSVパース（test_id,question_id,student_id,correct）
+  function parseCSV(text){
+    const lines=text.trim().split(/\r?\n/).filter(l=>l.trim());
+    const header=lines[0].toLowerCase().split(',').map(s=>s.trim());
+    const idx={
+      test:header.indexOf('test_id'),
+      q:header.indexOf('question_id'),
+      s:header.indexOf('student_id'),
+      c:header.indexOf('correct')
+    };
+    if(idx.q<0||idx.s<0||idx.c<0) throw new Error('列名 question_id / student_id / correct が必要です');
+    const recs=[];
+    for(let i=1;i<lines.length;i++){
+      const c=lines[i].split(',').map(s=>s.trim());
+      recs.push({
+        test: idx.test>=0?c[idx.test]:'test01',
+        q:c[idx.q], s:c[idx.s], correct:parseInt(c[idx.c],10)
+      });
+    }
+    return recs;
+  }
+
+  // ============================================================
+  // イベントバインド
+  // ============================================================
+  function bind(){
+    // モード切替
+    root.querySelectorAll('.mode-btn').forEach(b=>{
+      b.onclick=()=>{
+        if(state.appMode===b.dataset.mode) return;
+        state.appMode=b.dataset.mode;
+        state.data=null; state.step=0;
+        render();
+      };
+    });
+    // ステップタブ
+    root.querySelectorAll('.step-tab').forEach(tab=>{
+      tab.onclick=()=>{
+        const s=+tab.dataset.step;
+        if(s>0&&!state.data) return;
+        if(state.appMode==='live'&&s===3) return; // 本番はリカバリー無効
+        state.step=s; render();
+      };
+    });
+
+    // --- ダミーモードのスライダー ---
+    if(state.appMode==='dummy'){
+      const sliders=[
+        ['r-st','v-st','nStudents',v=>v,v=>v],
+        ['r-ts','v-ts','nTests',v=>v,v=>v],
+        ['r-q','v-q','nQ',v=>v,v=>v],
+        ['r-sp','v-sp','spread',v=>v/100,v=>(v/100).toFixed(2)],
+        ['r-gn','v-gn','gain',v=>v/100,v=>(v/100).toFixed(2)],
+        ['r-sd','v-sd','seed',v=>v,v=>v]
+      ];
+      sliders.forEach(([rid,vid,key,conv,disp])=>{
+        const el=root.querySelector('#'+rid); if(!el)return;
+        el.oninput=()=>{
+          state.cfg[key]=conv(+el.value);
+          root.querySelector('#'+vid).textContent=disp(+el.value);
+        };
+      });
+      const gen=root.querySelector('#gen');
+      if(gen) gen.onclick=()=>{
+        gen.disabled=true; gen.textContent='生成中…';
+        setTimeout(()=>{
+          state.data=generate({...state.cfg});
+          const d=state.data;
+          root.querySelector('#gen-result').innerHTML=`<div class="callout" style="margin-top:13px">
+            生成完了：生徒 <b>${d.cfg.nStudents}</b>名 ／ テスト <b>${d.cfg.nTests}</b>回 ／
+            問題 <b>${d.questions.length}</b>問 ／ 解答 <b>${d.responses.length}</b>件。</div>`;
+          state.step=1; render();
+        },260);
+      };
+    }
+
+    // --- 本番モードの操作 ---
+    if(state.appMode==='live'){
+      // 入力方式タブ
+      root.querySelectorAll('.itab').forEach(t=>{
+        t.onclick=()=>{ state.inputTab=t.dataset.itab; render(); };
+      });
+      // 生徒数・問題数スライダー
+      const rlst=root.querySelector('#rl-st'), rlq=root.querySelector('#rl-q');
+      if(rlst) rlst.oninput=()=>{
+        state.live.nStudents=+rlst.value;
+        root.querySelector('#lv-st').textContent=rlst.value;
+        ensureGrid(); render();
+      };
+      if(rlq) rlq.oninput=()=>{
+        state.live.nQ=+rlq.value;
+        root.querySelector('#lv-q').textContent=rlq.value;
+        ensureGrid(); render();
+      };
+      // グリッドのセルクリック（○→×→－）
+      root.querySelectorAll('.cell-btn').forEach(btn=>{
+        btn.onclick=()=>{
+          const s=+btn.dataset.s,q=+btn.dataset.q;
+          ensureGrid();
+          const cur=state.live.grid[s][q];
+          state.live.grid[s][q]= cur===1?0 : cur===0?undefined : 1;
+          render();
+        };
+      });
+      // 問題ヘッダクリック → タグ設定
+      root.querySelectorAll('th.qhdr').forEach((th,qi)=>{
+        th.onclick=()=>openTagPicker(qi);
+      });
+      // CSVドロップゾーン
+      const dz=root.querySelector('#dropzone'), fi=root.querySelector('#fileinp');
+      if(dz&&fi){
+        dz.onclick=()=>fi.click();
+        dz.ondragover=e=>{e.preventDefault();dz.classList.add('drag');};
+        dz.ondragleave=()=>dz.classList.remove('drag');
+        dz.ondrop=e=>{e.preventDefault();dz.classList.remove('drag');
+          if(e.dataTransfer.files[0]) handleCSV(e.dataTransfer.files[0]);};
+        fi.onchange=()=>{ if(fi.files[0]) handleCSV(fi.files[0]); };
+      }
+      const dlt=root.querySelector('#dl-template');
+      if(dlt) dlt.onclick=downloadCSVTemplate;
+      // 「この内容で分析する」
+      const apply=root.querySelector('#live-apply');
+      if(apply) apply.onclick=()=>{
+        const d=liveToData();
+        const tagged=d.questions.filter(q=>q.teacher.length>0).length;
+        if(d.responses.length===0){
+          root.querySelector('#live-result').innerHTML=
+            `<div class="callout warn" style="margin-top:12px">解答データがありません。
+            表に入力するか、CSVを読み込んでください。</div>`;
+          return;
+        }
+        if(tagged===0){
+          root.querySelector('#live-result').innerHTML=
+            `<div class="callout warn" style="margin-top:12px">問題にタグが未設定です。
+            問題ヘッダ Q1… をクリックして教師タグを設定してください。</div>`;
+          return;
+        }
+        state.data=d;
+        root.querySelector('#live-result').innerHTML=`<div class="callout" style="margin-top:12px">
+          分析準備完了：問題 <b>${d.questions.length}</b>問（タグ付き${tagged}問）／
+          解答 <b>${d.responses.length}</b>件。STEP 2 以降に進めます。</div>`;
+        state.step=1; render();
+      };
+
+      // AIタグ付けプロンプトを作る
+      const mkTag=root.querySelector('#make-tagprompt');
+      if(mkTag) mkTag.onclick=()=>{
+        const txt=root.querySelector('#qtext').value;
+        const prompt=buildTaggingPrompt(txt);
+        root.querySelector('#tagprompt-area').innerHTML=`
+          <div class="prompt-box" id="pb-tagging">${escapeHTML(prompt)}<button
+            class="copy-btn" data-copy="pb-tagging">コピー</button></div>
+          <div class="small" style="margin-top:5px">これをChatGPT / Claudeに貼り付け、
+          返ってきた結果を下の欄②に貼り付けてください。</div>`;
+        // コピーボタンを有効化
+        const cb=root.querySelector('[data-copy="pb-tagging"]');
+        if(cb) cb.onclick=()=>{
+          const box=root.querySelector('#pb-tagging');
+          navigator.clipboard.writeText(box.childNodes[0].textContent).then(()=>{
+            cb.textContent='コピー済'; setTimeout(()=>cb.textContent='コピー',1400);
+          });
+        };
+      };
+
+      // AIの返答を取り込んで ai_tags に反映
+      const impTag=root.querySelector('#import-aitags');
+      if(impTag) impTag.onclick=()=>{
+        const reply=root.querySelector('#aireply').value;
+        const status=root.querySelector('#aitag-status');
+        if(!reply.trim()){
+          status.textContent=' AIの返答を貼り付けてください。'; return;
+        }
+        const parsed=parseTaggingReply(reply);
+        ensureGrid();
+        let applied=0;
+        Object.keys(parsed).forEach(qi=>{
+          const i=+qi;
+          if(i<state.live.nQ){
+            state.live.questions[i].ai=parsed[i];
+            applied++;
+          }
+        });
+        if(applied===0){
+          status.textContent=' 取り込めるタグがありません。形式 "Q1: tag;tag" を確認してください。';
+        } else {
+          status.textContent=` ${applied}問にAIタグを取り込みました。STEP 3 で検証できます。`;
+        }
+      };
+    }
+
+    // --- 共通：プロンプトのコピー、CSVエクスポート ---
+    root.querySelectorAll('.copy-btn').forEach(b=>{
+      b.onclick=()=>{
+        const box=root.querySelector('#'+b.dataset.copy);
+        const txt=box.childNodes[0].textContent;
+        navigator.clipboard.writeText(txt).then(()=>{
+          b.textContent='コピー済'; setTimeout(()=>b.textContent='コピー',1400);
+        });
+      };
+    });
+    const ep=root.querySelector('#export-plan');
+    if(ep) ep.onclick=exportPlan;
+  }
+
+  // 本番モードのグリッド配列を生徒数・問題数に合わせる
+  function ensureGrid(){
+    const lv=state.live;
+    while(lv.questions.length<lv.nQ) lv.questions.push({teacher:[],ai:[]});
+    lv.questions.length=lv.nQ;
+    while(lv.grid.length<lv.nStudents) lv.grid.push([]);
+    lv.grid.length=lv.nStudents;
+  }
+
+  // タグ選択（簡易プロンプト）
+  function openTagPicker(qi){
+    ensureGrid();
+    const cur=state.live.questions[qi].teacher.join(',');
+    const list=TAGS.map((t,i)=>`${i+1}:${t}(${TAG_JA[t]})`).join('  ');
+    const ans=prompt(
+      `Q${qi+1} の教師タグを番号で入力（複数可・カンマ区切り）\n\n${list}\n\n例: 4,11`,
+      cur ? TAGS.map((t,i)=>state.live.questions[qi].teacher.includes(t)?i+1:'').filter(x=>x).join(',') : '');
+    if(ans===null) return;
+    const picked=ans.split(',').map(s=>parseInt(s.trim(),10)-1)
+      .filter(i=>i>=0&&i<TAGS.length).map(i=>TAGS[i]);
+    state.live.questions[qi].teacher=[...new Set(picked)];
+    render();
+  }
+
+  function handleCSV(file){
+    const reader=new FileReader();
+    reader.onload=()=>{
+      try{
+        const recs=parseCSV(reader.result);
+        // CSVから生徒・問題を復元
+        const students=[...new Set(recs.map(r=>r.s))].sort();
+        const qs=[...new Set(recs.map(r=>r.q))].sort();
+        state.live.nStudents=students.length;
+        state.live.nQ=qs.length;
+        ensureGrid();
+        const sIdx={}; students.forEach((s,i)=>sIdx[s]=i);
+        const qIdx={}; qs.forEach((q,i)=>qIdx[q]=i);
+        state.live.grid=students.map(()=>[]);
+        recs.forEach(r=>{
+          const si=sIdx[r.s], qi=qIdx[r.q];
+          if(si!==undefined&&qi!==undefined)
+            state.live.grid[si][qi]= (r.correct===1?1:0);
+        });
+        const st=root.querySelector('#csv-status');
+        if(st) st.textContent=` 読込成功：生徒${students.length}名 × 問題${qs.length}問。`
+          +'問題のタグは「表に手入力」タブで設定してください。';
+        state.inputTab='grid'; render();
+      }catch(e){
+        const st=root.querySelector('#csv-status');
+        if(st) st.textContent=' エラー: '+e.message;
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function downloadCSVTemplate(){
+    let csv='test_id,question_id,student_id,correct\n';
+    for(let q=1;q<=state.live.nQ;q++)
+      for(let s=1;s<=state.live.nStudents;s++)
+        csv+=`test01,Q${String(q).padStart(2,'0')},S${String(s).padStart(2,'0')},\n`;
+    downloadFile(csv,'responses_template.csv');
+  }
+
+  function exportPlan(){
+    const map=buildMap(state.data,state.data.cfg.nTests);
+    const valid=TAGS.filter(t=>map[t]!==null);
+    const TOTAL=20; const weights={}; let wsum=0;
+    valid.forEach(t=>{const w=Math.max(0.05,1-map[t]);weights[t]=w;wsum+=w;});
+    let csv='tag,tag_ja,class_accuracy,planned_questions\n';
+    valid.map(t=>({t,acc:map[t],n:Math.max(1,Math.round(TOTAL*weights[t]/wsum))}))
+      .sort((a,b)=>a.acc-b.acc)
+      .forEach(p=>csv+=`${p.t},${TAG_JA[p.t]},${p.acc.toFixed(4)},${p.n}\n`);
+    downloadFile(csv,'question_plan.csv');
+  }
+
+  function downloadFile(text,name){
+    const blob=new Blob([text],{type:'text/csv'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  }
+
+  // HTMLエスケープ（プロンプト中の < > & を安全に表示）
+  function escapeHTML(s){
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;');
+  }
+
+  // 初期化
+  ensureGrid();
+  render();
+})();
+</script>
