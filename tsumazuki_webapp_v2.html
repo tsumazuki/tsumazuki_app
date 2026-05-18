@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
+<!-- saved from url=(0061)file:///Users/ikezawagen/Downloads/tsumazuki_webapp_v2_7.html -->
+<html lang="ja"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>つまずきマップ研究シミュレータ</title>
 
@@ -33,7 +33,165 @@
 <body>
 
 <!-- つまずきマップ研究 Webアプリ版 v2：ダミー/本番モード + 問題生成 -->
-<div id="app-root"></div>
+<div id="app-root">
+      <div class="hdr">
+        <h1>つまずきマップ研究シミュレータ</h1>
+        <div class="sub">英語読解のAI活用授業 ／ 弱点分析・AIタグ検証・問題自動生成</div>
+      </div>
+      <div class="mode-switch">
+        <button class="mode-btn active" data-mode="dummy">
+          <span class="dot"></span>ダミーモード</button>
+        <button class="mode-btn " data-mode="live">
+          <span class="dot"></span>本番モード</button>
+      </div>
+      <div class="mode-banner dummy">
+        ◆ ダミーモード：仮想データでシステムを検証中。実在の生徒データではありません。
+      </div>
+      <div class="steps">
+        <div class="step-tab active
+             " data-step="0">
+            <div class="n">STEP 1</div>
+            <div class="t">データ準備</div></div><div class="step-tab 
+             locked" data-step="1">
+            <div class="n">STEP 2</div>
+            <div class="t">つまずきマップ</div></div><div class="step-tab 
+             locked" data-step="2">
+            <div class="n">STEP 3</div>
+            <div class="t">AIタグ検証</div></div><div class="step-tab 
+             locked" data-step="3">
+            <div class="n">STEP 4</div>
+            <div class="t">パラメータリカバリー</div></div><div class="step-tab 
+             locked" data-step="4">
+            <div class="n">STEP 5</div>
+            <div class="t">問題自動生成</div></div>
+      </div>
+      <div id="panels">
+        <div class="panel active" data-panel="0">
+      <div class="card">
+      <h2><span class="tag">STEP 1 / ダミー</span>仮想クラスを生成</h2>
+      <div class="desc">生徒に「タグ別の本当の理解度」を持たせ、テスト回ごとに学習で伸ばし、
+      理解度を成功確率として正誤を確率的に生成します。実生徒に解かせる前のシステム検証用です。</div>
+      <div class="ctrl-grid">
+        <div class="ctrl"><label>生徒数<span class="val" id="v-st">35</span></label>
+          <input type="range" id="r-st" min="3" max="40" value="35">
+          <div class="hint">1クラスの人数</div></div>
+        <div class="ctrl"><label>テスト回数<span class="val" id="v-ts">3</span></label>
+          <input type="range" id="r-ts" min="1" max="6" value="3">
+          <div class="hint">学期内の実施回数</div></div>
+        <div class="ctrl"><label>1回の問題数<span class="val" id="v-q">20</span></label>
+          <input type="range" id="r-q" min="5" max="40" value="20">
+          <div class="hint">テスト1回あたり</div></div>
+        <div class="ctrl"><label>能力差<span class="val" id="v-sp">0.12</span></label>
+          <input type="range" id="r-sp" min="0" max="25" value="12">
+          <div class="hint">生徒間のばらつき</div></div>
+        <div class="ctrl"><label>学習の伸び<span class="val" id="v-gn">0.06</span></label>
+          <input type="range" id="r-gn" min="0" max="15" value="6">
+          <div class="hint">テスト1回ごとの向上</div></div>
+        <div class="ctrl"><label>乱数シード<span class="val" id="v-sd">42</span></label>
+          <input type="range" id="r-sd" min="1" max="100" value="42">
+          <div class="hint">同じ値なら再現可能</div></div>
+      </div>
+      <div class="callout">弱点として <b>関係詞・分詞・推論</b> の3タグを仕込んであります。
+      分析がこれを当てられるか後のステップで確認します。</div>
+      <button class="run" id="gen">ダミークラスを生成</button>
+      <div id="gen-result"></div>
+    </div>
+    </div>
+        <div class="panel " data-panel="1">
+      <div class="card"><h2><span class="tag">STEP 2</span>つまずきマップ</h2><div class="empty">STEP 1 でデータを準備してください。</div></div></div>
+        <div class="panel " data-panel="2">
+      <div class="card"><h2><span class="tag">STEP 3</span>AIタグ付けの信頼性</h2><div class="empty">STEP 1 でデータを準備してください。</div></div></div>
+        <div class="panel " data-panel="3">
+      <div class="card"><h2><span class="tag">STEP 4</span>パラメータリカバリー</h2><div class="empty">STEP 1 でダミークラスを生成してください。</div></div></div>
+        <div class="panel " data-panel="4">
+      <div class="card">
+        <h2><span class="tag">STEP 5-A</span>弱点連動の出題計画</h2>
+        <div class="callout">つまずきマップに基づく弱点連動の出題計画は、
+        STEP 1 で生徒の解答データを入力すると表示されます。
+        マップに依存しない通常の問題は、下の「通常問題の作成」で今すぐ作れます。</div>
+      </div>
+      <div class="card">
+      <h2><span class="tag">STEP 5-B</span>通常問題の作成（つまずきマップ不要）</h2>
+      <div class="desc">つまずきマップに関係なく、出題したいタグと問題数・難易度を自分で指定して
+      問題作成プロンプトを作ります。第1回テストの作成や、弱点補強に偏らない
+      バランスのとれた出題に使えます。生徒データの入力は不要です。</div>
+
+      <div class="small" style="font-weight:500;margin-bottom:4px">① 難易度（学年）を選ぶ</div>
+      <div class="level-pick">
+        <button class="level-btn " data-level="中1">中1<span class="lv-cefr">A1</span></button><button class="level-btn " data-level="中2">中2<span class="lv-cefr">A1〜A2</span></button><button class="level-btn " data-level="中3">中3<span class="lv-cefr">A2</span></button><button class="level-btn sel" data-level="高1">高1<span class="lv-cefr">A2〜B1</span></button><button class="level-btn " data-level="高2">高2<span class="lv-cefr">B1</span></button><button class="level-btn " data-level="高3">高3<span class="lv-cefr">B1〜B2</span></button>
+      </div>
+
+      <div class="small" style="font-weight:500;margin:12px 0 4px">
+        ② 出題するタグと問題数を指定（＋－で増減）</div>
+      <div class="cg-tag-list"><div class="cg-tag-row">
+        <span class="cg-tag-name">vocabulary <span style="color:var(--mute)">語彙</span></span>
+        <div class="cg-stepper">
+          <button class="cg-minus" data-cgtag="vocabulary">−</button>
+          <span class="cg-count" id="cg-n-vocabulary">0</span>
+          <button class="cg-plus" data-cgtag="vocabulary">＋</button>
+        </div>
+      </div><div class="cg-tag-row">
+        <span class="cg-tag-name">idiom <span style="color:var(--mute)">熟語</span></span>
+        <div class="cg-stepper">
+          <button class="cg-minus" data-cgtag="idiom">−</button>
+          <span class="cg-count" id="cg-n-idiom">0</span>
+          <button class="cg-plus" data-cgtag="idiom">＋</button>
+        </div>
+      </div><div class="cg-tag-row">
+        <span class="cg-tag-name">tense <span style="color:var(--mute)">時制</span></span>
+        <div class="cg-stepper">
+          <button class="cg-minus" data-cgtag="tense">−</button>
+          <span class="cg-count" id="cg-n-tense">0</span>
+          <button class="cg-plus" data-cgtag="tense">＋</button>
+        </div>
+      </div><div class="cg-tag-row">
+        <span class="cg-tag-name">relative-clause <span style="color:var(--mute)">関係詞</span></span>
+        <div class="cg-stepper">
+          <button class="cg-minus" data-cgtag="relative-clause">−</button>
+          <span class="cg-count" id="cg-n-relative-clause">0</span>
+          <button class="cg-plus" data-cgtag="relative-clause">＋</button>
+        </div>
+      </div><div class="cg-tag-row">
+        <span class="cg-tag-name">participle <span style="color:var(--mute)">分詞</span></span>
+        <div class="cg-stepper">
+          <button class="cg-minus" data-cgtag="participle">−</button>
+          <span class="cg-count" id="cg-n-participle">0</span>
+          <button class="cg-plus" data-cgtag="participle">＋</button>
+        </div>
+      </div><div class="cg-tag-row">
+        <span class="cg-tag-name">sentence-structure <span style="color:var(--mute)">文構造</span></span>
+        <div class="cg-stepper">
+          <button class="cg-minus" data-cgtag="sentence-structure">−</button>
+          <span class="cg-count" id="cg-n-sentence-structure">0</span>
+          <button class="cg-plus" data-cgtag="sentence-structure">＋</button>
+        </div>
+      </div><div class="cg-tag-row">
+        <span class="cg-tag-name">reference <span style="color:var(--mute)">指示語</span></span>
+        <div class="cg-stepper">
+          <button class="cg-minus" data-cgtag="reference">−</button>
+          <span class="cg-count" id="cg-n-reference">0</span>
+          <button class="cg-plus" data-cgtag="reference">＋</button>
+        </div>
+      </div><div class="cg-tag-row">
+        <span class="cg-tag-name">inference <span style="color:var(--mute)">推論</span></span>
+        <div class="cg-stepper">
+          <button class="cg-minus" data-cgtag="inference">−</button>
+          <span class="cg-count" id="cg-n-inference">0</span>
+          <button class="cg-plus" data-cgtag="inference">＋</button>
+        </div>
+      </div></div>
+      <div class="cg-total">合計 <b>0</b> 問</div>
+
+      <div class="small" style="font-weight:500;margin:12px 0 4px">
+        ③ 生成されたプロンプト</div>
+      <div class="prompt-box" id="pb-custom">（出題するタグの問題数を1問以上に設定すると、ここにプロンプトが表示されます）<button class="copy-btn" data-copy="pb-custom">コピー</button></div>
+      <div class="small" style="margin-top:6px">
+      このプロンプトを ChatGPT / Claude に貼り付けて問題を作成できます。
+      また、本番モードの「STEP 1b（AIにタグ付けさせる）」の問題文入力欄にも利用できます。</div>
+    </div>
+    </div>
+      </div>
+      </div>
 
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Spline+Sans+Mono:wght@400;600&display=swap');
@@ -1333,10 +1491,12 @@ ${body}`;
 【対象】高校生・クラス平均正答率${(p.acc*100).toFixed(0)}%
 【方針】${levelNote}
 【各問題に含めるもの】
- - 80〜120語程度の英文パッセージ
+ - 80〜120語程度の英文パッセージ（課題文）
  - その英文に関する設問1つ（4択）
  - 正解と、なぜその選択肢が正解かの解説
  - この問題が「${p.tag}」を問うていることが分かる箇所の明示
+【使用言語】英文パッセージ（課題文）は英語で書くこと。
+それ以外の設問文・選択肢・解説・指示はすべて日本語で書くこと。
 【難易度】${p.n}問すべて同程度の難易度に揃えること。
 出力はそのまま生徒に配布できる形式で。`;
   }
@@ -1369,10 +1529,12 @@ ${body}`;
 【出題する文法・読解要素と問題数】
 ${tagLines}
 【各問題に含めるもの】
- - ${lv.words}程度の英文パッセージ
+ - ${lv.words}程度の英文パッセージ（課題文）
  - その英文に関する設問1つ（4択）
  - 正解と、なぜその選択肢が正解かの解説
  - その問題がどの要素（上記のタグ名）を問うているかの明示
+【使用言語】英文パッセージ（課題文）は英語で書くこと。
+それ以外の設問文・選択肢・解説・指示はすべて日本語で書くこと。
 【難易度】指定した学年レベルに揃え、問題ごとのばらつきを抑えること。
 出力はそのまま生徒に配布できる形式で。`;
   }
@@ -1895,5 +2057,6 @@ ${tagLines}
   render();
 })();
 </script>
-</body>
-</html>
+
+
+</body></html>
