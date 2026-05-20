@@ -750,22 +750,37 @@
     <div class="card">
       <h2><span class="tag">STEP 1b / 本番</span>AIにタグ付けさせる（STEP 3用）</h2>
       <div class="desc">STEP 3 のAIタグ検証を行うには、AIがつけたタグが必要です。
-      ここで問題文を貼り付けるとタグ付け依頼プロンプトを自動生成します。
-      それをChatGPTやClaudeに渡し、返ってきた結果をこのアプリに取り込みます。</div>
-      <div class="small" style="margin-bottom:4px;font-weight:500">
-        &#9312; 問題文を貼り付け（任意。空でもプロンプトは作れます）</div>
-      <textarea id="qtext" placeholder="Q1: ここに英文と設問を貼り付け&#10;Q2: &hellip;"
-        style="width:100%;min-height:80px;font-family:'Spline Sans Mono',monospace;
+      タグ付け依頼プロンプトを自動生成しますので、それを生成AI（ChatGPT・Claude等）に渡し、
+      返ってきた結果をこのアプリに取り込みます。問題はAIに次のどちらか（または両方）で渡せます。
+      <br><b>(a) PDFをアップロード</b>：生成AIに問題のPDFをアップロードしてから、下のプロンプトを送る。
+      <br><b>(b) 問題文を貼り付け</b>：下の「問題文を貼り付け」欄に英文と設問を貼り付ける。プロンプトの末尾に自動で挿入されます。</div>
+      <div class="callout warn" style="font-size:.78rem">
+        <b>PDFをアップロードする場合の注意：</b>
+        PDFの作りによってはAIが問題文を正しく抽出できないことがあります（画像化された問題、
+        段組み、特殊フォント、数式や図表が多い場合など）。AIの返答に「問題文が読み取れない」
+        等の応答があれば、(b) の貼り付け方式に切り替えるか、両方併用してください。</div>
+
+      <div class="small" style="margin:10px 0 4px;font-weight:500">
+        &#9312; 問題文を貼り付け（任意。PDFアップロードだけで渡す場合は空のままで可）</div>
+      <textarea id="qtext" placeholder="（任意）Q1: ここに英文と設問を貼り付け&#10;Q2: &hellip;"
+        style="width:100%;min-height:90px;font-family:'Spline Sans Mono',monospace;
         font-size:.78rem;padding:8px;border:1.5px solid var(--line);border-radius:3px;
         resize:vertical"></textarea>
-      <div style="margin:8px 0">
+
+      <div class="small" style="margin:10px 0 4px;font-weight:500">
+        &#9313; タグ付け依頼プロンプトを生成</div>
+      <div style="margin:0 0 8px">
         <button class="ghost" id="make-tagprompt">タグ付けプロンプトを作る</button>
+        <span class="small" style="color:var(--mute)">
+          ※ &#9312; に問題文が入っていればプロンプト末尾に自動挿入されます。
+          空ならPDFを参照する前提のプロンプトが作られます。</span>
       </div>
       <div id="tagprompt-area"></div>
+
       <div class="small" style="margin:10px 0 4px;font-weight:500">
-        &#9313; AIの返答（Q1: tag;tag 形式）をここに貼り付けて取り込む
+        &#9314; AIの返答（Q1: tag;tag 形式）をここに貼り付けて取り込む
         <span style="color:var(--mute)">（現在のテスト回 第${lv.activeTest+1}回 に適用）</span></div>
-      <textarea id="aireply" placeholder="Q1: relative-clause;detail&#10;Q2: vocabulary"
+      <textarea id="aireply" placeholder="Q1: relative-clause;vocabulary&#10;Q2: tense"
         style="width:100%;min-height:70px;font-family:'Spline Sans Mono',monospace;
         font-size:.78rem;padding:8px;border:1.5px solid var(--line);border-radius:3px;
         resize:vertical"></textarea>
@@ -1271,33 +1286,34 @@
     </div>`;
   }
 
-  // AIにタグ付けさせるためのプロンプトを組み立てる
-  // questionText: 教師が貼り付けた問題文（英文＋設問）。複数問まとめて渡せる。
+  // AIにタグ付けさせるためのプロンプトを組み立てる。
+  //   questionText が空 → 問題はPDF等で別途AIに渡す前提（「上記の英語の問題」と書く）
+  //   questionText に貼り付けあり → 末尾に【対象の問題】セクションとして埋め込む
+  // 両方併用も可能（PDFを添付しつつテキストでも示す等）。
   function buildTaggingPrompt(questionText){
     const tagList = TAGS.map(t=>` - ${t}（${TAG_JA[t]}）`).join('\n');
-    const body = questionText && questionText.trim()
-      ? questionText.trim()
-      : '（ここに問題文を貼り付けてください。複数問ある場合は Q1: … Q2: … のように番号を付ける）';
-    return `あなたは英語教育の専門家です。
-以下の英語読解問題それぞれについて、その問題が問うている文法・読解要素を、
+    const hasText = questionText && questionText.trim();
+    const intro = hasText
+      ? 'あなたは英語教育の専門家です。\n下の【対象の問題】に示した英語の問題それぞれについて、その問題が問うている文法・読解要素を、'
+      : 'あなたは英語教育の専門家です。\n上記の英語の問題それぞれについて、その問題が問うている文法・読解要素を、';
+    const head = `${intro}
 下の【タグ一覧】の中から選んでください。
-
 【タグ一覧】（この中の語だけを使うこと。一覧にない語は使わない）
 ${tagList}
-
 【判定のルール】
  - 1問につき1〜2個のタグを選ぶ（最も中心的に問われている要素を優先）
  - 必ずタグ一覧の英語の語（vocabulary 等）で答える
  - 各問題について、なぜそのタグを選んだか一文で理由も書く
-
 【出力形式】次の形式を厳守してください。
 Q1: tag1;tag2
 理由: …
 Q2: tag1
-理由: …
+理由: …`;
+    if(!hasText) return head;
+    return `${head}
 
 【対象の問題】
-${body}`;
+${questionText.trim()}`;
   }
 
   // AIの返答（Q1: tag;tag 形式）を解析して問題ごとのタグ配列にする
@@ -1623,7 +1639,8 @@ ${tagLines}
       // AIタグ付けプロンプトを作る
       const mkTag=root.querySelector('#make-tagprompt');
       if(mkTag) mkTag.onclick=()=>{
-        const txt=root.querySelector('#qtext').value;
+        const qtEl=root.querySelector('#qtext');
+        const txt=qtEl?qtEl.value:'';
         const prompt=buildTaggingPrompt(txt);
         root.querySelector('#tagprompt-area').innerHTML=`
           <div class="prompt-box" id="pb-tagging">${escapeHTML(prompt)}<button
