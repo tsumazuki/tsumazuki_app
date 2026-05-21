@@ -743,8 +743,6 @@
       ${inputArea}
       <div class="callout warn">本番モードでは生徒の「本当の理解度」は誰も知りません。
       そのため<b>パラメータリカバリー（STEP 4）は行えません</b>。代わりに実データでのAIタグ精度を確認します。</div>
-      <button class="run" id="live-apply">この内容で分析する</button>
-      <div id="live-result"></div>
     </div>
 
     <div class="card">
@@ -788,6 +786,11 @@
         <button class="ghost" id="import-aitags">AIタグを取り込む</button>
         <span class="small" id="aitag-status"></span>
       </div>
+    </div>
+
+    <div class="card" style="text-align:center;background:transparent;border:none;box-shadow:none;padding-top:8px">
+      <button class="run" id="live-apply" style="font-size:1rem;padding:14px 32px">この内容で分析する</button>
+      <div id="live-result"></div>
     </div>`;
   }
 
