@@ -375,6 +375,32 @@
     font-family: 'Spline Sans Mono', monospace; font-size: 0.6rem;
     font-weight: 400; opacity: 0.7;
   }
+  /* 学年クリアボタン */
+  .lvl-clear {
+    margin-left: 8px; font-size: 0.7rem; padding: 1px 8px;
+    border: 1px solid var(--line); background: var(--card);
+    border-radius: 2px; cursor: pointer; color: var(--mute);
+  }
+  .lvl-clear:hover { color: var(--bad); border-color: var(--bad); }
+  /* 「AIタグを教師タグとして使用中」バッジ */
+  .ai-copy-badge {
+    display: inline-block; margin-left: 8px; padding: 3px 10px;
+    font-size: 0.74rem; font-weight: 600; border-radius: 3px;
+    background: #f0ecf5; color: #4a3a6a; border: 1px solid #c0b0d0;
+  }
+  .ai-copy-badge::before { content: "✓ "; }
+  /* 例示チェック行（STEP5-A） */
+  .weak-ex-row { margin: 10px 0 6px; }
+  .weak-ex-label {
+    display: flex; align-items: center; gap: 7px; cursor: pointer;
+    font-size: 0.84rem;
+  }
+  .weak-ex-label input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
+  .weak-ex-preview {
+    margin: 4px 0 0 22px; font-size: 0.74rem;
+    padding: 5px 8px; background: var(--paper); border-radius: 3px;
+    border-left: 2px solid var(--accent2);
+  }
   .cg-tag-list {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 5px 14px;
@@ -636,14 +662,24 @@
       nStudents: 10,
       nQ: 10,
       activeTest: 0,                  // いま編集中のテスト回（0始まり）
-      tests: [ { questions:[], grid:[] } ]  // 各回のデータ
+      tests: [ { questions:[], grid:[] } ],  // 各回のデータ
+      qtext: '',                      // STEP1bに貼り付けた問題文（STEP5でも参照）
+      aireply: '',                    // STEP1bに貼り付けたAIの返答（保持用）
+      aitagStatus: '',                // 「○問にAIタグを取り込みました」のメッセージ
+      aiCopyStatus: '',               // 「○問の教師タグをAIタグからコピーしました」
+      aiCopyUsed: false               // 「AIタグを教師タグとして使用中」フラグ
     },
     tagPicker: { open:false, qi:null, selected:[] },  // タグ選択モーダル
     mapViewTest: null,                // STEP2でいま表示中のテスト回（0始まり）
-    // STEP5 通常問題生成（つまずきマップに依存しない問題作成）
+    // STEP5-A 弱点連動の出題計画
+    weakGen: {
+      level: null,                    // 難易度（中1〜高3）。null=未選択
+      useExample: false               // 問題文を例示としてプロンプトに含めるか
+    },
+    // STEP5-B 通常問題生成（つまずきマップに依存しない問題作成）
     customGen: {
       counts: {},                     // { tag: 出題数 } 0なら出題しない
-      level: '高1'                    // 難易度（中1〜高3）
+      level: null                     // 難易度（中1〜高3）。null=未選択
     }
   };
 
@@ -819,14 +855,14 @@
       <textarea id="qtext" placeholder="（任意）Q1: ここに英文と設問を貼り付け&#10;Q2: &hellip;"
         style="width:100%;min-height:90px;font-family:'Spline Sans Mono',monospace;
         font-size:.78rem;padding:8px;border:1.5px solid var(--line);border-radius:3px;
-        resize:vertical"></textarea>
+        resize:vertical">${escapeHTML(state.live.qtext||'')}</textarea>
 
       <div class="small" style="margin:10px 0 4px;font-weight:500">
         &#9313; タグ付け依頼プロンプトを生成</div>
       <div style="margin:0 0 8px">
         <button class="ghost" id="make-tagprompt">タグ付けプロンプトを作る</button>
         <span class="small" style="color:var(--mute)">
-          ※ &#9312; に問題文が入っていればプロンプト末尾に自動挿入されます。
+          ※ &#9312; に問題文が入っていればプロンプトに自動挿入されます。
           空ならPDFを参照する前提のプロンプトが作られます。</span>
       </div>
       <div id="tagprompt-area"></div>
@@ -837,10 +873,10 @@
       <textarea id="aireply" placeholder="Q1: relative-clause;vocabulary&#10;Q2: tense"
         style="width:100%;min-height:70px;font-family:'Spline Sans Mono',monospace;
         font-size:.78rem;padding:8px;border:1.5px solid var(--line);border-radius:3px;
-        resize:vertical"></textarea>
+        resize:vertical">${escapeHTML(lv.aireply||'')}</textarea>
       <div style="margin-top:8px">
         <button class="ghost" id="import-aitags">AIタグを取り込む</button>
-        <span class="small" id="aitag-status"></span>
+        <span class="small" id="aitag-status">${escapeHTML(lv.aitagStatus||'')}</span>
       </div>
 
       <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)">
@@ -851,7 +887,10 @@
           コピーできます。これでつまずきマップを自動作成できます。
           タグの由来は記録されるので、マップ上で「AI由来」と「教員手動」を区別できます。</div>
         <button class="ghost" id="copy-ai-to-teacher">AIタグを教師タグとして使う</button>
-        <span class="small" id="ai-copy-status"></span>
+        ${lv.aiCopyUsed
+          ? '<span class="ai-copy-badge">AIタグを教師タグとして使用中です</span>'
+          : ''}
+        <span class="small" id="ai-copy-status">${escapeHTML(lv.aiCopyStatus||'')}</span>
       </div>
     </div>
 
@@ -1322,14 +1361,28 @@
         </table>
 
         <h2 style="font-size:.9rem;margin:18px 0 4px">生成AIに渡すプロンプト</h2>
-        <div class="desc">各弱点タグについて、生成AIにそのまま渡せる指示文を自動で組み立てました。
+        <div class="desc">各弱点タグについて、生成AIにそのまま渡せる指示文を自動で組み立てます。
+        下で難易度（任意）と例示の使用（任意）を選ぶと、プロンプトに反映されます。
         コピーして ChatGPT / Claude に貼り付けてください。</div>
+
+        <div class="small" style="font-weight:500;margin:10px 0 4px">
+          (任意) 難易度（学年）を選ぶ
+          ${state.weakGen.level?`<button class="lvl-clear" id="weak-lvl-clear">×クリア</button>`:''}</div>
+        <div class="level-pick">
+          ${LEVELS.map(l=>`<button class="level-btn ${state.weakGen.level===l.name?'sel':''}"
+            data-weak-level="${l.name}">${l.name}<span class="lv-cefr">${l.cefr}</span></button>`).join('')}
+        </div>
+        ${weakExampleCheckHTML()}
+
         ${plan.filter(p=>p.acc<0.7).map(p=>{
           const col=tagColor(planTags,p.tag);
+          const useEx = state.weakGen.useExample;
+          const example = useEx ? extractFirstQuestion(state.live.qtext||'') : null;
+          const promptText = buildPrompt(p, state.weakGen.level, example);
           return `<div class="qgen-block">
             <div class="qg-head"><span>${TAG_JA[p.tag]}（${p.tag}）の強化問題</span>
               <span class="qg-pill" style="background:${col}">${p.n}問</span></div>
-            <div class="prompt-box" id="pb-${p.tag}">${buildPrompt(p)}<button
+            <div class="prompt-box" id="pb-${p.tag}">${escapeHTML(promptText)}<button
               class="copy-btn" data-copy="pb-${p.tag}">コピー</button></div>
           </div>`;
         }).join('')}
@@ -1387,7 +1440,9 @@
       問題作成プロンプトを作ります。第1回テストの作成や、弱点補強に偏らない
       バランスのとれた出題に使えます。生徒データの入力は不要です。</div>
 
-      <div class="small" style="font-weight:500;margin-bottom:4px">① 難易度（学年）を選ぶ</div>
+      <div class="small" style="font-weight:500;margin-bottom:4px">
+        ① 難易度（学年）を選ぶ（任意）
+        ${cg.level?`<button class="lvl-clear" id="cg-lvl-clear">×クリア</button>`:''}</div>
       <div class="level-pick">
         ${LEVELS.map(l=>`<button class="level-btn ${cg.level===l.name?'sel':''}"
           data-level="${l.name}">${l.name}<span class="lv-cefr">${l.cefr}</span></button>`).join('')}
@@ -1459,23 +1514,44 @@ ${questionText.trim()}`;
     return result;
   }
 
-  // 生成AI向けプロンプトの自動組み立て
-  function buildPrompt(p){
+  // 生成AI向けプロンプトの自動組み立て（弱点連動）
+  //   p           : {tag, n, acc} 出題対象
+  //   levelName   : 難易度（'中1'〜'高3'。未指定なら null）
+  //   exampleText : 例示問題のテキスト（未指定なら null）
+  function buildPrompt(p, levelName, exampleText){
     const levelNote = p.acc<0.5
       ? 'このクラスはこの分野が大きな弱点です。基礎から段階的に。'
       : 'このクラスはこの分野がやや弱いです。標準レベルで。';
-    return `あなたは高校英語の問題作成者です。
+    // 学年・語数の指定
+    let levelLine, wordsLine;
+    if(levelName){
+      const lv=levelInfo(levelName);
+      levelLine = `【対象の学年・レベル】${lv.name}（CEFR ${lv.cefr} 相当）― ${lv.note}`;
+      wordsLine = `${lv.words}程度の英文パッセージ（課題文）`;
+    } else {
+      levelLine = `【対象】高校生・クラス平均正答率${(p.acc*100).toFixed(0)}%`;
+      wordsLine = `80〜120語程度の英文パッセージ（課題文）`;
+    }
+    // 例示問題ブロック（あれば末尾に追加）
+    const exampleBlock = exampleText && exampleText.trim()
+      ? `\n【難易度の見本】次の問題と同程度の難易度・語彙・構文レベルで作成してください。
+（あくまで難易度の目安。下の見本そのものを真似た問題は作らない。）
+─────
+${exampleText.trim()}
+─────\n`
+      : '';
+    return `あなたは英語の問題作成者です。
 次の条件で英文読解問題を${p.n}問作成してください。
 
 【強化したい文法・読解要素】${TAG_JA[p.tag]}（${p.tag}）
-【対象】高校生・クラス平均正答率${(p.acc*100).toFixed(0)}%
+${levelLine}
 【方針】${levelNote}
 【各問題の構成】
- - 80〜120語程度の英文パッセージ（課題文）
+ - ${wordsLine}
  - その英文に関する設問1つ（4択）
 【使用言語】英文パッセージ（課題文）は英語で書くこと。
 それ以外の設問文・選択肢・解説・指示はすべて日本語で書くこと。
-【難易度】${p.n}問すべて同程度の難易度に揃えること。
+【難易度】${p.n}問すべて同程度の難易度に揃えること。${exampleBlock}
 【出力の順序】次の順で出力すること。
  1. まず ${p.n}問すべての「問題」（英文パッセージ＋設問＋選択肢）を続けて出題する。
     この部分には正解・解説・タグを書かないこと。
@@ -1499,26 +1575,68 @@ ${questionText.trim()}`;
     return LEVELS.find(l=>l.name===name) || LEVELS[3];
   }
 
+  // 問題文テキストから Q1（最初の問題）の部分だけを抽出する。
+  // Q1〜Q2 など Q番号で区切られた文を想定。区切りが無ければ全文を返す。
+  function extractFirstQuestion(text){
+    if(!text) return '';
+    const t = text.trim();
+    if(!t) return '';
+    const m = t.match(/(^|\n)\s*Q\s*[2-9]\d*\b/i);
+    if(m && m.index>0) return t.slice(0,m.index).trim();
+    return t;
+  }
+  // STEP5-A用：例示問題チェックボックスのHTML
+  function weakExampleCheckHTML(){
+    const qtext = state.live.qtext || '';
+    const hasText = qtext.trim().length>0;
+    const example = hasText ? extractFirstQuestion(qtext) : '';
+    const preview = example.length>80 ? example.slice(0,80)+'…' : example;
+    if(!hasText){
+      return `<div class="small" style="color:var(--mute);margin:8px 0">
+        ※ STEP 1b の「①問題文を貼り付け」に問題が入っていれば、
+        その Q1 を例示として難易度の見本にできます（現在は未入力）。</div>`;
+    }
+    return `<div class="weak-ex-row">
+      <label class="weak-ex-label">
+        <input type="checkbox" id="weak-use-ex" ${state.weakGen.useExample?'checked':''}>
+        <span>例示問題を使う（STEP 1b の問題文 Q1 を難易度の見本としてプロンプトに含める）</span>
+      </label>
+      <div class="weak-ex-preview" title="${escapeAttr(example)}">
+        Q1の例示プレビュー：<span style="color:var(--mute)">${escapeHTML(preview)}</span>
+      </div>
+    </div>`;
+  }
+  function escapeAttr(s){
+    return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;')
+      .replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
   // 通常問題（つまずきマップに依存しない）用プロンプトの組み立て
   //   plan: [{tag, n}, ...]（出題したいタグと問題数）, levelName: 難易度
   function buildCustomPrompt(plan, levelName){
-    const lv=levelInfo(levelName);
+    const lv = levelName ? levelInfo(levelName) : null;
     const total=plan.reduce((a,p)=>a+p.n,0);
     const tagLines=plan.map(p=>
       ` - ${TAG_JA[p.tag]}（${p.tag}）：${p.n}問`).join('\n');
+    const levelLine = lv
+      ? `【対象の学年・レベル】${lv.name}（CEFR ${lv.cefr} 相当）
+【レベルの目安】${lv.note}`
+      : '【対象の学年・レベル】高校生向け（標準）';
+    const wordsLine = lv
+      ? `${lv.words}程度の英文パッセージ（課題文）`
+      : `80〜120語程度の英文パッセージ（課題文）`;
     return `あなたは英語の問題作成者です。
 次の条件で英文読解問題を合計${total}問作成してください。
 
-【対象の学年・レベル】${lv.name}（CEFR ${lv.cefr} 相当）
-【レベルの目安】${lv.note}
+${levelLine}
 【出題する文法・読解要素と問題数】
 ${tagLines}
 【各問題の構成】
- - ${lv.words}程度の英文パッセージ（課題文）
+ - ${wordsLine}
  - その英文に関する設問1つ（4択）
 【使用言語】英文パッセージ（課題文）は英語で書くこと。
 それ以外の設問文・選択肢・解説・指示はすべて日本語で書くこと。
-【難易度】指定した学年レベルに揃え、問題ごとのばらつきを抑えること。
+【難易度】${lv?'指定した学年レベルに揃え':'同程度の難易度に揃え'}、問題ごとのばらつきを抑えること。
 【出力の順序】次の順で出力すること。
  1. まず ${total}問すべての「問題」（英文パッセージ＋設問＋選択肢）を続けて出題する。
     この部分には正解・解説・タグを書かないこと。
@@ -1771,11 +1889,16 @@ ${tagLines}
         state.step=1; render();
       };
 
+      // 問題文の入力をstateに保存（STEP5でも参照できるよう）
+      const qtTa=root.querySelector('#qtext');
+      if(qtTa) qtTa.oninput=()=>{ state.live.qtext = qtTa.value; };
+
       // AIタグ付けプロンプトを作る
       const mkTag=root.querySelector('#make-tagprompt');
       if(mkTag) mkTag.onclick=()=>{
         const qtEl=root.querySelector('#qtext');
         const txt=qtEl?qtEl.value:'';
+        state.live.qtext=txt;   // 入力分を確実に同期
         const prompt=buildTaggingPrompt(txt);
         root.querySelector('#tagprompt-area').innerHTML=`
           <div class="prompt-box" id="pb-tagging">${escapeHTML(prompt)}<button
@@ -1792,13 +1915,18 @@ ${tagLines}
         };
       };
 
+      // AI返答テキストエリアの入力をstateに同期（再レンダリングで失わないため）
+      const arEl=root.querySelector('#aireply');
+      if(arEl) arEl.oninput=()=>{ state.live.aireply = arEl.value; };
+
       // AIの返答を取り込んで ai_tags に反映（現在の編集回に適用）
       const impTag=root.querySelector('#import-aitags');
       if(impTag) impTag.onclick=()=>{
         const reply=root.querySelector('#aireply').value;
-        const status=root.querySelector('#aitag-status');
+        state.live.aireply=reply;  // 確実に同期
         if(!reply.trim()){
-          status.textContent=' AIの返答を貼り付けてください。'; return;
+          state.live.aitagStatus=' AIの返答を貼り付けてください。';
+          render(); return;
         }
         const parsed=parseTaggingReply(reply);
         ensureGrid();
@@ -1812,26 +1940,25 @@ ${tagLines}
           }
         });
         if(applied===0){
-          status.textContent=' 取り込めるタグがありません。形式 "Q1: tag;tag" を確認してください。';
+          state.live.aitagStatus=' 取り込めるタグがありません。形式 "Q1: tag;tag" を確認してください。';
         } else {
-          status.textContent=` 第${state.live.activeTest+1}回の${applied}問にAIタグを取り込みました。`;
+          state.live.aitagStatus=` 第${state.live.activeTest+1}回の${applied}問にAIタグを取り込みました。`;
         }
+        render();
       };
 
       // AIタグをそのまま教師タグとしてコピー（全テスト回に適用）
       const cpAi=root.querySelector('#copy-ai-to-teacher');
       if(cpAi) cpAi.onclick=()=>{
-        const status=root.querySelector('#ai-copy-status');
         ensureGrid();
-        // 現在の編集回でAIタグが入っている問題数を集計
         const at=activeTest();
         let aiCount=0;
         for(let q=0;q<state.live.nQ;q++){
           if(at.questions[q]&&at.questions[q].ai&&at.questions[q].ai.length>0) aiCount++;
         }
         if(aiCount===0){
-          status.textContent=' AIタグがまだ取り込まれていません。先に④で取り込んでください。';
-          return;
+          state.live.aiCopyStatus=' AIタグがまだ取り込まれていません。先に③で取り込んでください。';
+          render(); return;
         }
         // 教師タグが既にある問題は、上書き確認
         let existing=0;
@@ -1844,7 +1971,7 @@ ${tagLines}
         if(existing>0){
           if(!confirm(`現在 ${existing} 問に教師タグが入力されています。AIタグで上書きしますか？`)) return;
         }
-        // 全テスト回の同じQ番号にAIタグを反映（時系列比較のためタグ構成は全回共通）
+        // 全テスト回の同じQ番号にAIタグを反映
         let copied=0;
         for(let q=0;q<state.live.nQ;q++){
           const aiTags=at.questions[q]&&at.questions[q].ai?at.questions[q].ai:[];
@@ -1857,7 +1984,8 @@ ${tagLines}
           });
           copied++;
         }
-        status.textContent=` ${copied}問の教師タグをAIタグからコピーしました。`;
+        state.live.aiCopyStatus=` ${copied}問の教師タグをAIタグからコピーしました。`;
+        state.live.aiCopyUsed=true;
         render();
       };
     }
@@ -1875,13 +2003,33 @@ ${tagLines}
     const ep=root.querySelector('#export-plan');
     if(ep) ep.onclick=exportPlan;
 
-    // STEP5-B 通常問題生成：難易度ボタン
-    root.querySelectorAll('.level-btn').forEach(b=>{
+    // STEP5-A 弱点連動：難易度ボタン（data-weak-level）
+    root.querySelectorAll('.level-btn[data-weak-level]').forEach(b=>{
+      b.onclick=()=>{
+        state.weakGen.level=b.dataset.weakLevel;
+        render();
+      };
+    });
+    // STEP5-A 弱点連動：難易度クリア
+    const wlc=root.querySelector('#weak-lvl-clear');
+    if(wlc) wlc.onclick=()=>{ state.weakGen.level=null; render(); };
+    // STEP5-A 弱点連動：例示問題チェックボックス
+    const wex=root.querySelector('#weak-use-ex');
+    if(wex) wex.onchange=()=>{
+      state.weakGen.useExample = wex.checked;
+      render();
+    };
+
+    // STEP5-B 通常問題生成：難易度ボタン（data-level のみ。data-weak-level は除外）
+    root.querySelectorAll('.level-btn[data-level]').forEach(b=>{
       b.onclick=()=>{
         state.customGen.level=b.dataset.level;
         render();
       };
     });
+    // STEP5-B 通常問題生成：難易度クリア
+    const cglc=root.querySelector('#cg-lvl-clear');
+    if(cglc) cglc.onclick=()=>{ state.customGen.level=null; render(); };
     // STEP5-B 通常問題生成：タグ出題数の増減（＋－）
     root.querySelectorAll('.cg-plus').forEach(b=>{
       b.onclick=()=>{
