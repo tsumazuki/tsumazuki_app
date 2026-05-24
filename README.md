@@ -11,6 +11,12 @@ Webアプリ版は以下のURLで公開されています。インストール�
 https://tsumazuki.github.io/tsumazuki_app/tsumazuki_webapp_v2.html
 ```
 
+ソースコードは GitHub で公開しています。
+
+```
+https://github.com/tsumazuki/tsumazuki_app
+```
+
 入力した生徒データはブラウザ内だけで処理され、サーバーや外部サービスに送信・保存されることはありません。
 
 ## ファイル一覧
