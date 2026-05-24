@@ -175,9 +175,20 @@
 
   .bar-row { display: flex; align-items: center; gap: 9px; margin: 5px 0; }
   .bar-row .lbl {
-    width: 138px; font-size: 0.76rem; text-align: right;
-    font-family: 'Spline Sans Mono', monospace; line-height: 1.25;
+    width: 168px; font-size: 0.76rem; text-align: right;
+    font-family: 'Spline Sans Mono', monospace; line-height: 1.3;
   }
+  /* タグソースのバッジ */
+  .src-badge {
+    display: inline-block; font-size: 0.6rem; font-weight: 600;
+    padding: 1px 5px; border-radius: 2px; vertical-align: middle;
+    font-family: 'Zen Kaku Gothic New', sans-serif; line-height: 1.3;
+    margin-left: 2px;
+  }
+  .src-manual   { background: #e8f1ea; color: #2d5a3a; border: 1px solid #b0c8b6; }
+  .src-ai       { background: #f0ecf5; color: #4a3a6a; border: 1px solid #c0b0d0; }
+  .src-ai-edit  { background: #fcf2e0; color: #7a5a1a; border: 1px solid #d8c890; }
+  .src-mixed    { background: #ece8e0; color: #4a4030; border: 1px solid #c0b8a8; }
   .bar-track {
     flex: 1; height: 21px; background: var(--paper);
     border: 1px solid var(--line); border-radius: 2px; position: relative;
@@ -540,6 +551,38 @@
     }
     return out;
   }
+  // タグごとの「教師タグソース」内訳を集計
+  //   各タグについて、そのタグを含む問題が「教員手動/AIコピー/AI修正」の
+  //   どれで付けられたかを数える。返り値: { tag: {manual, aiCopy, aiEdited, total} }
+  //   total はそのタグが教師タグとして付いている問題の数（テスト回ごと重複あり）
+  function tagSourceBreakdown(data){
+    const out={};
+    TAGS.forEach(t=>out[t]={manual:0,aiCopy:0,aiEdited:0,total:0});
+    if(!data.questions) return out;
+    data.questions.forEach(q=>{
+      if(!q.teacher||q.teacher.length===0) return;
+      const src=q.teacherSource;
+      q.teacher.forEach(tg=>{
+        if(!out[tg]) return;
+        out[tg].total++;
+        if(src==='ai-copy') out[tg].aiCopy++;
+        else if(src==='ai-edited') out[tg].aiEdited++;
+        else out[tg].manual++;  // null も manual 扱い（ダミーモード等）
+      });
+    });
+    return out;
+  }
+  // タグソース内訳から「主たる由来」を返す（バッジ表示用）
+  //   全てmanualなら 'manual'、全てaiCopyなら 'ai-copy'、
+  //   ai-edited が混じれば 'ai-edited'、混在なら 'mixed'
+  function dominantSource(brk){
+    if(!brk||brk.total===0) return null;
+    if(brk.aiEdited>0 && (brk.manual>0||brk.aiCopy>0)) return 'mixed';
+    if(brk.aiEdited>0) return 'ai-edited';
+    if(brk.aiCopy>0 && brk.manual>0) return 'mixed';
+    if(brk.aiCopy>0) return 'ai-copy';
+    return 'manual';
+  }
   function truthMean(data,upToTest){
     const out={};
     TAGS.forEach(tg=>{
@@ -705,14 +748,27 @@
       inputArea = testTabsHTML() + gridInputHTML();
     } else {
       inputArea = `
+        <div class="small" style="font-weight:500;margin:0 0 4px">
+          &#9312; 解答データ（必須）</div>
         <div class="dropzone" id="dropzone">
           CSVファイルをここにドラッグ&ドロップ、または<b>クリックして選択</b><br>
           <span class="small">形式: test_id, question_id, student_id, correct（1=正解/0=不正解）</span><br>
           <span class="small">複数回のテストは test_id 列（test01, test02…）で区別します</span>
           <input type="file" id="fileinp" accept=".csv" style="display:none">
         </div>
-        <div style="margin-top:8px">
-          <button class="ghost" id="dl-template">入力用CSVテンプレートを保存</button>
+
+        <div class="small" style="font-weight:500;margin:12px 0 4px">
+          &#9313; 問題タグ（任意）― 教員のタグ付けを別ファイルで読み込む</div>
+        <div class="dropzone" id="dropzone-tags">
+          問題タグCSVをここにドラッグ&ドロップ、または<b>クリックして選択</b><br>
+          <span class="small">形式: question_id, teacher_tags（タグはセミコロン区切り）</span><br>
+          <span class="small">例: <code>Q01,relative-clause;vocabulary</code></span>
+          <input type="file" id="fileinp-tags" accept=".csv" style="display:none">
+        </div>
+
+        <div style="margin-top:10px">
+          <button class="ghost" id="dl-template">解答CSVテンプレートを保存</button>
+          <button class="ghost" id="dl-template-tags">問題タグCSVテンプレートを保存</button>
           <button class="ghost" id="export-live">入力済みデータをCSVで保存</button>
           <span class="small" id="csv-status"></span>
         </div>`;
@@ -786,6 +842,17 @@
         <button class="ghost" id="import-aitags">AIタグを取り込む</button>
         <span class="small" id="aitag-status"></span>
       </div>
+
+      <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)">
+        <div class="small" style="font-weight:500;margin-bottom:4px">
+          &#9315; （任意）AIタグをそのまま教師タグとして使う</div>
+        <div class="small" style="margin-bottom:6px">
+          教員が個別にタグ付けする手間を省きたい場合、取り込んだAIタグを教師タグにも
+          コピーできます。これでつまずきマップを自動作成できます。
+          タグの由来は記録されるので、マップ上で「AI由来」と「教員手動」を区別できます。</div>
+        <button class="ghost" id="copy-ai-to-teacher">AIタグを教師タグとして使う</button>
+        <span class="small" id="ai-copy-status"></span>
+      </div>
     </div>
 
     <div class="card" style="text-align:center;background:transparent;border:none;box-shadow:none;padding-top:8px">
@@ -851,26 +918,40 @@
       const nT=state.data.cfg.nTests;
       const presence=tagPresence(state.data);
       const map=buildMap(state.data,nT);  // 全回まとめた正答率
-      // 全回で一度でも出題されたタグはすべて表示対象にする
+      const sourceBrk=tagSourceBreakdown(state.data);
       const allTags=TAGS.filter(t=>presence[t].present>0);
       const sorted=allTags.slice().sort((a,b)=>{
         const va=map[a]===null?2:map[a], vb=map[b]===null?2:map[b];
         return va-vb;
       });
+      // 全体のソース内訳サマリー（タグソース表示する価値があるかの判定にも使う）
+      let totalManual=0,totalAiCopy=0,totalAiEdited=0;
+      sorted.forEach(t=>{
+        if(sourceBrk[t]){
+          totalManual+=sourceBrk[t].manual;
+          totalAiCopy+=sourceBrk[t].aiCopy;
+          totalAiEdited+=sourceBrk[t].aiEdited;
+        }
+      });
+      const showSrc = (totalAiCopy+totalAiEdited)>0;  // AI由来があるときだけ表示
+      const sourceSummary = showSrc ? sourceSummaryHTML(totalManual,totalAiCopy,totalAiEdited) : '';
+      const sourceLegend = showSrc ? sourceLegendHTML() : '';
+
       if(sorted.length===0){
         body=`<div class="empty">有効なタグ付き問題がありません。問題にタグを設定してください。</div>`;
       } else if(nT<=1){
         body=`<div class="desc">教師タグを正として、タグ別のクラス平均正答率を出します。
         低いタグ＝クラスの弱点。これが「つまずきマップ」です。</div>
-        ${barRows(map,sorted,presence)}
+        ${sourceSummary}
+        ${barRows(map,sorted,presence,showSrc?sourceBrk:null)}
         ${mapLegend()}
+        ${sourceLegend}
         <div class="callout">最下位3タグ：<b>${sorted.slice(0,3).map(t=>TAG_JA[t]).join('・')}</b>
         がこのクラスの弱点です。テスト回を増やすと時系列変化を見られます。</div>`;
       } else {
         // テスト複数回
         const perTest=[];
         for(let k=1;k<=nT;k++) perTest.push(buildMapForTest(state.data,k));
-        // 表示中の回（未設定なら最新回）
         if(state.mapViewTest===null||state.mapViewTest>=nT)
           state.mapViewTest=nT-1;
         const vt=state.mapViewTest;
@@ -882,12 +963,14 @@
         const first=perTest[0], latest=perTest[nT-1];
         body=`<div class="desc">テストを重ねるごとに、つまずきマップがどう変化したかを示します。
         全${nT}回の累計マップ、各回のマップ、変化、推移の順に表示します。</div>
+        ${sourceSummary}
 
         <h2 style="font-size:.9rem;margin:14px 0 2px">① 全${nT}回 累計のつまずきマップ（棒）</h2>
         <div class="small" style="margin-bottom:6px">
         全テスト回をまとめた正答率です。サンプル数が多く、期間全体のクラスの傾向を最も安定して示します。</div>
-        ${barRows(map,sorted,presence)}
+        ${barRows(map,sorted,presence,showSrc?sourceBrk:null)}
         ${mapLegend()}
+        ${sourceLegend}
 
         <h2 style="font-size:.9rem;margin:18px 0 2px">② 各回のつまずきマップ（棒）</h2>
         <div class="map-nav">
@@ -895,7 +978,7 @@
           <span class="mn-label">第${vt+1}回 / 全${nT}回</span>
           <button id="map-next" ${vt>=nT-1?'disabled':''}>&#9654;</button>
         </div>
-        ${barRows(shown,shownTags,null)}
+        ${barRows(shown,shownTags,null,showSrc?sourceBrk:null)}
         ${mapLegend()}
         <div class="small" style="margin-top:6px;color:var(--warn)">
         ※「出題なし」のタグは、その回にそのタグの問題が無かったことを示します。</div>
@@ -933,8 +1016,9 @@
       <div class="card"><h2><span class="tag">STEP 2</span>つまずきマップ</h2>${body}</div></div>`;
   }
 
-  // 棒グラフの行（共通）。presence を渡すと出題頻度（4/5など）を添える
-  function barRows(map,sorted,presence){
+  // 棒グラフの行（共通）。presence を渡すと出題頻度（4/5など）を、
+  // sourceBrk を渡すとタグソースのバッジ（教師手動/AIコピー/AI修正/混在）を添える
+  function barRows(map,sorted,presence,sourceBrk){
     return sorted.map(tg=>{
       const v=map[tg];
       // 出題頻度の注記
@@ -945,19 +1029,54 @@
           freq=` <span style="color:var(--warn);font-size:.66rem">出題 ${p.present}/${p.total}回</span>`;
         }
       }
+      // タグソースのバッジ
+      const srcBadge = sourceBrk ? sourceBadgeHTML(sourceBrk[tg]) : '';
       if(v===null){
-        // この集計範囲で一度も出題されなかったタグ
         return `<div class="bar-row">
-          <div class="lbl">${tg}<br><span style="font-family:'Zen Kaku Gothic New';font-size:.68rem;color:var(--mute)">${TAG_JA[tg]}</span></div>
+          <div class="lbl">${tg} ${srcBadge}<br><span style="font-family:'Zen Kaku Gothic New';font-size:.68rem;color:var(--mute)">${TAG_JA[tg]}</span></div>
           <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
           <div class="pct" style="color:var(--mute)">出題なし</div></div>`;
       }
       const col=v<0.5?'var(--bad)':v<0.7?'var(--warn)':'var(--good)';
       return `<div class="bar-row">
-        <div class="lbl">${tg}<br><span style="font-family:'Zen Kaku Gothic New';font-size:.68rem;color:var(--mute)">${TAG_JA[tg]}${freq}</span></div>
+        <div class="lbl">${tg} ${srcBadge}<br><span style="font-family:'Zen Kaku Gothic New';font-size:.68rem;color:var(--mute)">${TAG_JA[tg]}${freq}</span></div>
         <div class="bar-track"><div class="bar-fill" style="width:${v*100}%;background:${col}"></div></div>
         <div class="pct">${(v*100).toFixed(1)}%</div></div>`;
     }).join('');
+  }
+  // タグソース内訳からバッジHTMLを返す
+  function sourceBadgeHTML(brk){
+    const d=dominantSource(brk);
+    if(!d) return '';
+    const labels={
+      'manual':   {short:'教員',  cls:'src-manual',   title:'教員が手動で設定したタグ'},
+      'ai-copy':  {short:'AI',    cls:'src-ai',       title:'AIタグをそのままコピー'},
+      'ai-edited':{short:'AI修正',cls:'src-ai-edit',  title:'AIタグを教員が修正'},
+      'mixed':    {short:'混在',  cls:'src-mixed',    title:'問題によって由来が異なる'},
+    };
+    const L=labels[d];
+    return `<span class="src-badge ${L.cls}" title="${L.title}">${L.short}</span>`;
+  }
+  // タグソース内訳のサマリー（マップ上部に表示）
+  function sourceSummaryHTML(m,c,e){
+    const total=m+c+e;
+    if(total===0) return '';
+    const parts=[];
+    if(m>0) parts.push(`教員手動 ${m}件`);
+    if(c>0) parts.push(`AIタグから ${c}件`);
+    if(e>0) parts.push(`AI修正 ${e}件`);
+    return `<div class="callout" style="font-size:.78rem;margin:8px 0">
+      <b>タグの由来（このマップが何のタグで作られたか）：</b>${parts.join(' ／ ')}
+      <span style="color:var(--mute)">（タグごとの内訳は各バーのバッジで確認できます）</span>
+    </div>`;
+  }
+  // タグソースバッジの凡例
+  function sourceLegendHTML(){
+    return `<div class="legend" style="margin-top:4px">
+      <span><span class="src-badge src-manual">教員</span>教員が手動で設定</span>
+      <span><span class="src-badge src-ai">AI</span>AIタグをそのままコピー</span>
+      <span><span class="src-badge src-ai-edit">AI修正</span>AIタグを教員が修正</span>
+      <span><span class="src-badge src-mixed">混在</span>問題により由来が異なる</span></div>`;
   }
   function mapLegend(){
     return `<div class="legend">
@@ -1447,9 +1566,10 @@ ${tagLines}
     lv.tests.forEach((t,ti)=>{
       const testNo=ti+1;
       for(let q=0;q<lv.nQ;q++){
-        const tg=t.questions[q]||{teacher:[],ai:[]};
+        const tg=t.questions[q]||{teacher:[],ai:[],teacherSource:null};
         questions.push({test:testNo,q:q+1,
-          teacher:tg.teacher||[],ai:tg.ai||[]});
+          teacher:tg.teacher||[],ai:tg.ai||[],
+          teacherSource:tg.teacherSource||null});
       }
       for(let s=0;s<lv.nStudents;s++){
         for(let q=0;q<lv.nQ;q++){
@@ -1601,7 +1721,7 @@ ${tagLines}
       root.querySelectorAll('th.qhdr').forEach((th,qi)=>{
         th.onclick=()=>openTagPicker(qi);
       });
-      // CSVドロップゾーン
+      // CSVドロップゾーン（解答データ）
       const dz=root.querySelector('#dropzone'), fi=root.querySelector('#fileinp');
       if(dz&&fi){
         dz.onclick=()=>fi.click();
@@ -1611,8 +1731,20 @@ ${tagLines}
           if(e.dataTransfer.files[0]) handleCSV(e.dataTransfer.files[0]);};
         fi.onchange=()=>{ if(fi.files[0]) handleCSV(fi.files[0]); };
       }
+      // CSVドロップゾーン（問題タグ）
+      const dzT=root.querySelector('#dropzone-tags'), fiT=root.querySelector('#fileinp-tags');
+      if(dzT&&fiT){
+        dzT.onclick=()=>fiT.click();
+        dzT.ondragover=e=>{e.preventDefault();dzT.classList.add('drag');};
+        dzT.ondragleave=()=>dzT.classList.remove('drag');
+        dzT.ondrop=e=>{e.preventDefault();dzT.classList.remove('drag');
+          if(e.dataTransfer.files[0]) handleTagsCSV(e.dataTransfer.files[0]);};
+        fiT.onchange=()=>{ if(fiT.files[0]) handleTagsCSV(fiT.files[0]); };
+      }
       const dlt=root.querySelector('#dl-template');
       if(dlt) dlt.onclick=downloadCSVTemplate;
+      const dltT=root.querySelector('#dl-template-tags');
+      if(dltT) dltT.onclick=downloadCSVTemplateTags;
       const expL=root.querySelector('#export-live');
       if(expL) expL.onclick=exportLiveCSV;
       // 「この内容で分析する」
@@ -1684,6 +1816,49 @@ ${tagLines}
         } else {
           status.textContent=` 第${state.live.activeTest+1}回の${applied}問にAIタグを取り込みました。`;
         }
+      };
+
+      // AIタグをそのまま教師タグとしてコピー（全テスト回に適用）
+      const cpAi=root.querySelector('#copy-ai-to-teacher');
+      if(cpAi) cpAi.onclick=()=>{
+        const status=root.querySelector('#ai-copy-status');
+        ensureGrid();
+        // 現在の編集回でAIタグが入っている問題数を集計
+        const at=activeTest();
+        let aiCount=0;
+        for(let q=0;q<state.live.nQ;q++){
+          if(at.questions[q]&&at.questions[q].ai&&at.questions[q].ai.length>0) aiCount++;
+        }
+        if(aiCount===0){
+          status.textContent=' AIタグがまだ取り込まれていません。先に④で取り込んでください。';
+          return;
+        }
+        // 教師タグが既にある問題は、上書き確認
+        let existing=0;
+        for(let q=0;q<state.live.nQ;q++){
+          const qq=at.questions[q];
+          if(qq&&qq.teacher&&qq.teacher.length>0&&qq.teacherSource!=='ai-copy'){
+            existing++;
+          }
+        }
+        if(existing>0){
+          if(!confirm(`現在 ${existing} 問に教師タグが入力されています。AIタグで上書きしますか？`)) return;
+        }
+        // 全テスト回の同じQ番号にAIタグを反映（時系列比較のためタグ構成は全回共通）
+        let copied=0;
+        for(let q=0;q<state.live.nQ;q++){
+          const aiTags=at.questions[q]&&at.questions[q].ai?at.questions[q].ai:[];
+          if(aiTags.length===0) continue;
+          state.live.tests.forEach(t=>{
+            if(t.questions[q]){
+              t.questions[q].teacher=[...aiTags];
+              t.questions[q].teacherSource='ai-copy';
+            }
+          });
+          copied++;
+        }
+        status.textContent=` ${copied}問の教師タグをAIタグからコピーしました。`;
+        render();
       };
     }
 
@@ -1761,13 +1936,23 @@ ${tagLines}
     const lv=state.live;
     if(!lv.tests || lv.tests.length===0) lv.tests=[{questions:[],grid:[]}];
     lv.tests.forEach(t=>{
-      while(t.questions.length<lv.nQ) t.questions.push({teacher:[],ai:[]});
+      while(t.questions.length<lv.nQ)
+        t.questions.push({teacher:[],ai:[],teacherSource:null});
+      // 既存問題に teacherSource が無ければ初期化
+      t.questions.forEach(q=>{
+        if(q.teacherSource===undefined) q.teacherSource=null;
+      });
       t.questions.length=lv.nQ;
       while(t.grid.length<lv.nStudents) t.grid.push([]);
       t.grid.length=lv.nStudents;
     });
     if(lv.activeTest>=lv.tests.length) lv.activeTest=lv.tests.length-1;
   }
+  // teacherSource の値:
+  //   null       : タグ未設定
+  //   'manual'   : 教員が手動で入力
+  //   'ai-copy'  : AIタグをそのままコピーした
+  //   'ai-edited': AIコピー後に教員が編集した
   // いま編集中のテスト回を返す
   function activeTest(){ return state.live.tests[state.live.activeTest]; }
 
@@ -1786,7 +1971,14 @@ ${tagLines}
     const tp=state.tagPicker;
     const picked=[...new Set(tp.selected)];
     state.live.tests.forEach(t=>{
-      if(t.questions[tp.qi]) t.questions[tp.qi].teacher=picked;
+      if(t.questions[tp.qi]){
+        const q=t.questions[tp.qi];
+        const wasAI = (q.teacherSource==='ai-copy' || q.teacherSource==='ai-edited');
+        q.teacher=picked;
+        // タグの由来を更新：AI由来だったものを編集→'ai-edited'、それ以外→'manual'
+        q.teacherSource = (picked.length===0) ? null
+          : wasAI ? 'ai-edited' : 'manual';
+      }
     });
     state.tagPicker={open:false,qi:null,selected:[]};
     render();
@@ -1871,6 +2063,73 @@ ${tagLines}
             +`Q${String(q).padStart(2,'0')},`
             +`S${String(s).padStart(2,'0')},\n`;
     downloadFile(csv,'responses_template.csv');
+  }
+
+  // 問題タグ用CSV（教員のタグ付け）の読み込み
+  //   形式: question_id, teacher_tags（タグはセミコロン区切り）
+  //   例: Q01,relative-clause;vocabulary
+  function handleTagsCSV(file){
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const st=root.querySelector('#csv-status');
+      try{
+        const text=reader.result;
+        const lines=text.split(/\r?\n/).filter(l=>l.trim());
+        if(lines.length===0) throw new Error('CSVが空です');
+        // ヘッダーを判定（数字で始まらなければヘッダー扱い）
+        const first=lines[0].split(',').map(s=>s.trim());
+        const hasHeader = /question_id/i.test(first[0]);
+        const dataLines = hasHeader ? lines.slice(1) : lines;
+        ensureGrid();
+        const validTags=new Set(TAGS);
+        let applied=0, skipped=0, unknownTags=[];
+        dataLines.forEach(line=>{
+          const cols=line.split(',').map(s=>s.trim().replace(/^"|"$/g,''));
+          if(cols.length<2) return;
+          const qid=cols[0];
+          const tagStr=cols[1]||'';
+          // question_id (Q01等) から問題番号インデックスを取り出す
+          const m=qid.match(/(\d+)/);
+          if(!m){ skipped++; return; }
+          const qi=parseInt(m[1],10)-1;
+          if(qi<0||qi>=state.live.nQ){ skipped++; return; }
+          // タグはセミコロンまたはカンマ区切り（行末にカンマがある形式も許容）
+          const tags=tagStr.split(/[;|]/).map(t=>t.trim()).filter(t=>t);
+          const validated=[];
+          tags.forEach(t=>{
+            if(validTags.has(t)) validated.push(t);
+            else if(!unknownTags.includes(t)) unknownTags.push(t);
+          });
+          // 全テスト回の同じQ番号に適用（時系列比較のためタグ構成は全回共通）
+          state.live.tests.forEach(test=>{
+            if(test.questions[qi]){
+              test.questions[qi].teacher=validated;
+              test.questions[qi].teacherSource = validated.length>0 ? 'manual' : null;
+            }
+          });
+          if(validated.length>0) applied++;
+        });
+        let msg=` 問題タグを読込：${applied}問に教師タグを設定`;
+        if(skipped>0) msg+=`（${skipped}行スキップ）`;
+        if(unknownTags.length>0) msg+=`。未知のタグを無視: ${unknownTags.join(', ')}`;
+        if(st) st.textContent=msg;
+        render();
+      }catch(e){
+        if(st) st.textContent=' 問題タグCSVエラー: '+e.message;
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // 問題タグ用CSVのテンプレート
+  function downloadCSVTemplateTags(){
+    const lv=state.live;
+    let csv='question_id,teacher_tags\n';
+    csv+='# タグはセミコロン区切り。例: Q01,relative-clause;vocabulary\n';
+    csv+=`# 使用可能なタグ: ${TAGS.join(', ')}\n`;
+    for(let q=1;q<=lv.nQ;q++)
+      csv+=`Q${String(q).padStart(2,'0')},\n`;
+    downloadFile(csv,'question_tags_template.csv');
   }
 
   // 入力済みの全テスト回データをCSVで書き出し（保存・引き継ぎ用）
