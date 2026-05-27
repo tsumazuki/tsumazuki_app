@@ -341,6 +341,24 @@
   .cell-btn.c1 { background: #d6ead9; color: var(--good); font-weight: 700; }
   .cell-btn.c0 { background: #f2dcd7; color: var(--bad); font-weight: 700; }
   .cell-btn.cx { background: var(--card); color: var(--line); }
+  /* 表示専用セル（ダミーデータの参考表示） */
+  .cell-view {
+    display: block; width: 100%; height: 28px; line-height: 28px;
+    font-family: 'Spline Sans Mono', monospace; font-size: 0.8rem;
+    text-align: center; background: var(--card);
+  }
+  .cell-view.c1 { background: #d6ead9; color: var(--good); font-weight: 700; }
+  .cell-view.c0 { background: #f2dcd7; color: var(--bad); font-weight: 700; }
+  .cell-view.cx { background: var(--card); color: var(--line); }
+  th.qhdr-view {
+    padding: 4px 6px; font-size: 0.72rem; font-weight: 600;
+    text-align: center; line-height: 1.3; background: var(--paper);
+    border: 1px solid var(--line);
+  }
+  .dummy-preview {
+    margin-top: 18px; padding-top: 16px;
+    border-top: 2px dashed var(--line);
+  }
 
   .dropzone {
     border: 2px dashed var(--line); border-radius: 5px; padding: 26px;
@@ -686,6 +704,7 @@
     },
     tagPicker: { open:false, qi:null, selected:[] },  // タグ選択モーダル
     mapViewTest: null,                // STEP2でいま表示中のテスト回（0始まり）
+    dummyDataViewTest: 0,             // STEP1ダミーモード：データ表示中のテスト回
     // STEP5-A 弱点連動の出題計画
     weakGen: {
       level: null,                    // 難易度（中1〜高3）。null=未選択
@@ -798,6 +817,89 @@
       分析がこれを当てられるか後のステップで確認します。</div>
       <button class="run" id="gen">ダミークラスを生成</button>
       <div id="gen-result"></div>
+      ${state.data && state.data.mode==='dummy' ? dummyDataPreview() : ''}
+    </div>`;
+  }
+
+  // 生成されたダミーデータの中身を表示する（読み取り専用）
+  // 目的：「ブラックボックスの中身を見える化」する。本番モードのSTEP1と
+  // 同じ形式で表示することで、ダミー→本番の地続き感を出す。
+  function dummyDataPreview(){
+    const d=state.data;
+    if(!d||d.mode!=='dummy') return '';
+    const nT=d.cfg.nTests, nQ=d.cfg.nQ, nS=d.cfg.nStudents;
+    // 表示中のテスト回を整える
+    if(state.dummyDataViewTest>=nT) state.dummyDataViewTest=0;
+    const vt=state.dummyDataViewTest;  // 0始まり
+    const testNo=vt+1;
+
+    // この回の問題タグを取り出す
+    const qmap={};
+    d.questions.filter(q=>q.test===testNo).forEach(q=>{ qmap[q.q]=q; });
+    // 正誤を {studentIdx: [q0_correct, q1_correct, ...]} の形にまとめる
+    const grid=[];
+    for(let s=0;s<nS;s++) grid.push(new Array(nQ).fill(null));
+    d.responses.filter(r=>r.test===testNo).forEach(r=>{
+      grid[r.student][r.q-1]=r.correct;
+    });
+    // ヘッダ：Q1 教師タグ / AIタグ（食い違うときだけ）を表示
+    let qhdr='<th>生徒＼問題</th>';
+    for(let q=1;q<=nQ;q++){
+      const qq=qmap[q]||{teacher:[],ai:[]};
+      const tlbl=qq.teacher.map(t=>TAG_JA[t]).join('/')||'(なし)';
+      const sameAsTeacher = qq.teacher.length===qq.ai.length &&
+        qq.teacher.every(t=>qq.ai.includes(t));
+      let aiLine='';
+      if(!sameAsTeacher){
+        const albl=qq.ai.map(t=>TAG_JA[t]).join('/')||'(なし)';
+        aiLine=`<br><span style="font-size:.62rem;color:#a04a6a">AI: ${albl} ★</span>`;
+      }
+      qhdr+=`<th class="qhdr-view">Q${q}<br>
+        <span style="font-size:.66rem;color:#3a5a4a;font-weight:500">${tlbl}</span>${aiLine}</th>`;
+    }
+    // 本体
+    let body='';
+    // 表示するのは最大15人まで（多すぎると重い）
+    const maxRows=Math.min(nS,15);
+    for(let s=0;s<maxRows;s++){
+      body+=`<tr><td class="sid">S${String(s+1).padStart(2,'0')}</td>`;
+      for(let q=0;q<nQ;q++){
+        const v=grid[s][q];
+        const cls=v===1?'c1':v===0?'c0':'cx';
+        const label=v===1?'○':v===0?'×':'－';
+        body+=`<td><span class="cell-view ${cls}">${label}</span></td>`;
+      }
+      body+='</tr>';
+    }
+    // 11人目以降が省略された場合の注記
+    const moreNote = nS>maxRows
+      ? `<div class="small" style="margin-top:6px;color:var(--mute)">
+         ※ ${nS}人中 ${maxRows}人を表示。全データは内部に保持され、後のSTEPで利用されます。</div>`
+      : '';
+    // テスト回めくり
+    const navHTML = nT>1 ? `
+      <div class="map-nav">
+        <button id="dummy-prev" ${vt<=0?'disabled':''}>&#9664;</button>
+        <span class="mn-label">第${testNo}回 / 全${nT}回</span>
+        <button id="dummy-next" ${vt>=nT-1?'disabled':''}>&#9654;</button>
+      </div>` : '';
+
+    return `<div class="dummy-preview">
+      <h2 style="font-size:.95rem;margin:18px 0 6px">生成されたダミーデータ（参考表示）</h2>
+      <div class="small" style="margin-bottom:8px">
+        本番モードのSTEP 1と同じ形式で、生成された生徒×問題の正誤データと
+        各問題のタグを表示します。<b>表示のみで編集はできません</b>。
+        ダミーは「生徒に持たせた本当の理解度」を成功確率として正誤を生成しているので、
+        ここで見える○×は確率的にばらつきます（同じ生徒でも問題ごと・回ごとに変わります）。
+      </div>
+      ${navHTML}
+      <div class="grid-input"><table class="entry">
+      <thead><tr>${qhdr}</tr></thead><tbody>${body}</tbody></table></div>
+      ${moreNote}
+      <div class="small" style="margin-top:8px;color:var(--mute)">
+        ★ … AIタグが教師タグと食い違っている問題（混同・欠落・過剰のいずれか）。
+        STEP 3 でAIタグの一致度を測ります。
+      </div>
     </div>`;
   }
 
@@ -1797,11 +1899,13 @@ ${tagLines}
         gen.disabled=true; gen.textContent='生成中…';
         setTimeout(()=>{
           state.data=generate({...state.cfg});
+          state.dummyDataViewTest=0;  // プレビューは第1回から表示
           const d=state.data;
           root.querySelector('#gen-result').innerHTML=`<div class="callout" style="margin-top:13px">
             生成完了：生徒 <b>${d.cfg.nStudents}</b>名 ／ テスト <b>${d.cfg.nTests}</b>回 ／
-            問題 <b>${d.questions.length}</b>問 ／ 解答 <b>${d.responses.length}</b>件。</div>`;
-          state.step=1; render();
+            問題 <b>${d.questions.length}</b>問 ／ 解答 <b>${d.responses.length}</b>件。
+            STEP 2 に進みました。<b>STEP 1 タブに戻ると、生成された生徒データの参考表示を確認できます。</b></div>`;
+          state.step=1; render();   // STEP 2 へ自動遷移（mapを見せる）
         },260);
       };
     }
@@ -2082,6 +2186,16 @@ ${tagLines}
     if(mapNext) mapNext.onclick=()=>{
       const nT=state.data?state.data.cfg.nTests:1;
       if(state.mapViewTest<nT-1){ state.mapViewTest++; render(); }
+    };
+    // STEP1ダミーモード：ダミーデータプレビューの回めくり
+    const dumPrev=root.querySelector('#dummy-prev');
+    if(dumPrev) dumPrev.onclick=()=>{
+      if(state.dummyDataViewTest>0){ state.dummyDataViewTest--; render(); }
+    };
+    const dumNext=root.querySelector('#dummy-next');
+    if(dumNext) dumNext.onclick=()=>{
+      const nT=state.data?state.data.cfg.nTests:1;
+      if(state.dummyDataViewTest<nT-1){ state.dummyDataViewTest++; render(); }
     };
 
     // タグ選択モーダルのイベント
