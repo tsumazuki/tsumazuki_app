@@ -296,6 +296,21 @@
     background: var(--card); color: var(--ink);
   }
   .stu-select:hover { border-color: var(--accent2); }
+  /* テスト回の種別バッジ */
+  .kind-badge {
+    display: inline-block; font-size: 0.6rem; font-weight: 700;
+    padding: 0 4px; border-radius: 2px; vertical-align: middle;
+  }
+  .kind-badge.com { background: #e8f1ea; color: #2d5a3a; }
+  .kind-badge.ind { background: #f0ecf5; color: #4a3a6a; }
+  /* テスト回の種別選択 */
+  .kind-pick {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
+    margin-bottom: 10px; padding: 8px 10px; background: var(--paper);
+    border-radius: 4px;
+  }
+  .kind-opt { font-size: 0.8rem; cursor: pointer; display: inline-flex;
+    align-items: center; gap: 4px; }
   /* クラス/個人 切替タブ */
   .scope-tabs { display: flex; gap: 0; margin: 4px 0 14px; border-bottom: 2px solid var(--line); }
   .scope-tab {
@@ -610,7 +625,9 @@
         responses.push({test:qq.test,q:qq.q,student:s,correct:rng()<p?1:0});
       }
     }
-    return {truth,questions,responses,cfg,mode:'dummy'};
+    // ダミーは全テスト回が共通テスト（全員同じ問題）
+    const cfg2={...cfg, testKinds: Array.from({length:cfg.nTests},()=>'common')};
+    return {truth,questions,responses,cfg:cfg2,mode:'dummy'};
   }
 
   // ---- 分析関数（両モード共通） ----
@@ -1134,17 +1151,29 @@
       let filled=0;
       t.grid.forEach(row=>row.forEach(v=>{ if(v===0||v===1) filled++; }));
       const total=lv.nStudents*lv.nQ;
+      const kindBadge = (t.kind==='individual')
+        ? '<span class="kind-badge ind">個</span>'
+        : '<span class="kind-badge com">共</span>';
       tabs+=`<div class="ttab ${i===lv.activeTest?'active':''}" data-ttab="${i}">
-        第${i+1}回<br><span class="tprog">${filled}/${total}</span></div>`;
+        第${i+1}回 ${kindBadge}<br><span class="tprog">${filled}/${total}</span></div>`;
     });
+    const cur=lv.tests[lv.activeTest];
+    const curKind=cur?cur.kind||'common':'common';
     return `<div class="test-tabs">
       ${tabs}
       <div class="ttab add" data-ttab="add" title="テスト回を追加">＋ 回を追加</div>
       ${lv.tests.length>1?'<div class="ttab del" data-ttab="del" title="現在の回を削除">－ 削除</div>':''}
     </div>
-    <div class="small" style="margin-bottom:6px">
+    <div class="small" style="margin-bottom:4px">
       編集中：<b>第${lv.activeTest+1}回</b>。タブで回を切り替え。
-      問題のタグは全回共通です（時系列比較のため）。</div>`;
+      問題のタグは全回共通です（時系列比較のため）。</div>
+    <div class="kind-pick">
+      <span class="small" style="font-weight:500">第${lv.activeTest+1}回の種別：</span>
+      <label class="kind-opt"><input type="radio" name="testkind" value="common"
+        ${curKind==='common'?'checked':''}> 共通テスト（全員同じ問題・偏差値の対象）</label>
+      <label class="kind-opt"><input type="radio" name="testkind" value="individual"
+        ${curKind==='individual'?'checked':''}> 個人別問題（生徒ごとに違う問題・偏差値なし）</label>
+    </div>`;
   }
 
   // 本番モード：手入力グリッド（現在の編集回を表示）
@@ -1311,6 +1340,25 @@
     return `<select id="${selectId}" class="stu-select">${opts}</select>`;
   }
 
+  // テスト回の種別配列を取得（無ければ全てcommon扱い）
+  function testKinds(data){
+    if(data.cfg.testKinds && data.cfg.testKinds.length===data.cfg.nTests)
+      return data.cfg.testKinds;
+    return Array.from({length:data.cfg.nTests},()=>'common');
+  }
+  // 共通テスト回（偏差値の対象）の回番号リスト（1始まり）
+  function commonTestNos(data){
+    const kinds=testKinds(data);
+    const out=[];
+    kinds.forEach((k,i)=>{ if(k==='common') out.push(i+1); });
+    return out;
+  }
+  // 偏差値表示に使う「最新の共通テスト回」。無ければ null
+  function latestCommonTestNo(data){
+    const list=commonTestNos(data);
+    return list.length? list[list.length-1] : null;
+  }
+
   // 個人別のつまずきマップ本体（◀▶／プルダウンで生徒を切り替え）
   function studentMapBody(){
     const data=state.data;
@@ -1322,18 +1370,19 @@
     if(state.mapStudentIdx<0) state.mapStudentIdx=0;
     const si=state.mapStudentIdx;
 
-    // 偏差値・総合得点（全回まとめ）
-    const devInfo=studentDeviations(data, null);
-    const myScore=devInfo.scores[si];
+    // 偏差値・順位は「共通テスト回」でのみ意味を持つ（全員同じ問題のため）。
+    // 個人別問題回は問題が生徒ごとに違うので偏差値を出さない。
+    const devTestNo=latestCommonTestNo(data);
+    const hasCommon = devTestNo!=null;
+    const devInfo = hasCommon ? studentDeviations(data, devTestNo) : null;
+    const myScore = hasCommon ? devInfo.scores[si] : null;
     // 順位を計算（正答率の高い順、同率は同順位）
-    const ranked=devInfo.scores.filter(s=>s.rate!=null)
-      .slice().sort((a,b)=>b.rate-a.rate);
     let rank=null;
-    if(myScore.rate!=null){
-      rank=1+ranked.filter(s=>s.rate>myScore.rate).length;
+    if(hasCommon && myScore.rate!=null){
+      rank=1+devInfo.scores.filter(s=>s.rate!=null && s.rate>myScore.rate).length;
     }
 
-    // 個人のタグ別マップ
+    // 個人のタグ別マップ（こちらは全回まとめで出す。タグ集計は問題が違っても成立）
     const presence=tagPresence(data);
     const myMap=buildMapForStudent(data, si, null);
     const classMap=buildMap(data, nT);  // 比較用クラス平均
@@ -1351,20 +1400,33 @@
       ${studentSelectHTML('stu-select', si)}
     </div>`;
 
-    // 偏差値カード
-    const devCard = myScore.rate==null
-      ? `<div class="callout warn">この生徒の解答データがありません。</div>`
-      : `<div class="dev-cards">
+    // 偏差値カード（共通テスト回がある場合のみ）
+    let devCard;
+    if(!hasCommon){
+      devCard=`<div class="callout">この期間には共通テスト（全員が同じ問題を解いた回）が
+        ないため、偏差値・順位は表示しません。個人別問題は生徒ごとに問題が異なるため、
+        偏差値の母集団になりません。下のタグ別正答率で弱点を確認してください。</div>`;
+    } else if(myScore.rate==null){
+      devCard=`<div class="callout warn">この生徒の共通テスト（第${devTestNo}回）の
+        解答データがありません。</div>`;
+    } else {
+      const kindList=commonTestNos(data);
+      const noteMulti = kindList.length>1
+        ? `<span style="color:var(--mute)">（最新の共通テスト 第${devTestNo}回 基準）</span>` : '';
+      devCard=`<div class="small" style="margin:6px 0 2px">
+        偏差値・順位は共通テスト（第${devTestNo}回）の総合得点に基づきます。${noteMulti}</div>
+        <div class="dev-cards">
           <div class="dev-card"><div class="dev-k">総合得点</div>
             <div class="dev-v">${myScore.correct}<span class="dev-u">/${myScore.total}</span></div>
             <div class="dev-sub">${(myScore.rate*100).toFixed(0)}%</div></div>
           <div class="dev-card primary"><div class="dev-k">クラス内偏差値</div>
             <div class="dev-v">${myScore.deviation.toFixed(1)}</div>
-            <div class="dev-sub">総合得点ベース</div></div>
+            <div class="dev-sub">第${devTestNo}回 共通テスト</div></div>
           <div class="dev-card"><div class="dev-k">クラス内順位</div>
             <div class="dev-v">${rank}<span class="dev-u">/${devInfo.n}人</span></div>
             <div class="dev-sub">クラス平均 ${(devInfo.mean*100).toFixed(0)}%</div></div>
         </div>`;
+    }
 
     // 個人タグマップ（クラス平均との対比つき）
     let bars='';
@@ -1411,7 +1473,7 @@
       <span>│ クラス平均</span></div>`:''}
     <div class="callout" style="margin-top:12px">
       個人の弱点タグは、STEP 5 で「この生徒向けの問題」を作る際の根拠になります。
-      偏差値は外部模試と同じく、クラス内での総合的な位置を示します。</div>`;
+      偏差値は外部模試と同じく、共通テスト（全員同じ問題）の総合得点に基づくクラス内の位置です。</div>`;
   }
 
   // 棒グラフの行（共通）。presence を渡すと出題頻度（4/5など）を、
@@ -2090,7 +2152,8 @@ ${tagLines}
     });
     return {
       truth:null, questions, responses,
-      cfg:{nStudents:lv.nStudents,nTests:lv.tests.length,nQ:lv.nQ}, mode:'live'
+      cfg:{nStudents:lv.nStudents,nTests:lv.tests.length,nQ:lv.nQ,
+        testKinds: lv.tests.map(t=>t.kind||'common')}, mode:'live'
     };
   }
 
@@ -2200,8 +2263,11 @@ ${tagLines}
             // 新しい回を追加。問題のタグは直前の回から引き継ぐ
             const lv=state.live;
             const prev=lv.tests[lv.tests.length-1];
-            const newQs=prev.questions.map(q=>({teacher:[...q.teacher],ai:[]}));
-            lv.tests.push({questions:newQs,grid:[]});
+            const newQs=prev.questions.map(q=>({teacher:[...q.teacher],ai:[],
+              teacherSource:q.teacherSource||null}));
+            // 追加回は「個人別問題」をデフォルトに（弱点補強の結果を記録する想定）。
+            // 共通テストにしたい場合は下のラジオで切り替え可能。
+            lv.tests.push({questions:newQs,grid:[],kind:'individual'});
             lv.activeTest=lv.tests.length-1;
             ensureGrid(); render();
           } else if(v==='del'){
@@ -2215,6 +2281,14 @@ ${tagLines}
             state.live.activeTest=+v;
             render();
           }
+        };
+      });
+      // テスト回の種別（共通/個人別）ラジオ
+      root.querySelectorAll('input[name="testkind"]').forEach(r=>{
+        r.onchange=()=>{
+          ensureGrid();
+          state.live.tests[state.live.activeTest].kind=r.value;
+          render();
         };
       });
       // グリッドのセルクリック（○→×→－）。現在の編集回に書き込む
@@ -2524,7 +2598,7 @@ ${tagLines}
   // 本番モードのグリッド配列を生徒数・問題数・テスト回数に合わせる
   function ensureGrid(){
     const lv=state.live;
-    if(!lv.tests || lv.tests.length===0) lv.tests=[{questions:[],grid:[]}];
+    if(!lv.tests || lv.tests.length===0) lv.tests=[{questions:[],grid:[],kind:'common'}];
     lv.tests.forEach(t=>{
       while(t.questions.length<lv.nQ)
         t.questions.push({teacher:[],ai:[],teacherSource:null});
@@ -2535,9 +2609,14 @@ ${tagLines}
       t.questions.length=lv.nQ;
       while(t.grid.length<lv.nStudents) t.grid.push([]);
       t.grid.length=lv.nStudents;
+      // テスト回の種別（common=全員同じ共通テスト / individual=個人別問題）
+      if(t.kind===undefined) t.kind='common';
     });
     if(lv.activeTest>=lv.tests.length) lv.activeTest=lv.tests.length-1;
   }
+  // テスト回 kind の値:
+  //   'common'     : 共通テスト（全員が同じ問題）。偏差値の算出対象。
+  //   'individual' : 個人別問題（生徒ごとに違う問題）。偏差値は出さない。
   // teacherSource の値:
   //   null       : タグ未設定
   //   'manual'   : 教員が手動で入力
@@ -2620,7 +2699,7 @@ ${tagLines}
         state.live.nStudents=students.length;
         state.live.nQ=qs.length;
         // テスト回数ぶんの空データを用意
-        state.live.tests=testIds.map(()=>({questions:[],grid:[]}));
+        state.live.tests=testIds.map(()=>({questions:[],grid:[],kind:'common'}));
         state.live.activeTest=0;
         ensureGrid();
         // 各レコードを該当テスト回のグリッドに書き込む
