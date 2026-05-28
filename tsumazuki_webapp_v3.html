@@ -311,6 +311,22 @@
   }
   .kind-opt { font-size: 0.8rem; cursor: pointer; display: inline-flex;
     align-items: center; gap: 4px; }
+  /* 回ごとの問題数スライダー */
+  .round-q {
+    display: flex; flex-direction: column; gap: 3px;
+    margin: 4px 0 12px; max-width: 380px;
+  }
+  .round-q input[type="range"] { width: 100%; }
+  /* 個人別入力テーブル */
+  .indiv-table th, .indiv-table td { border: 1px solid var(--line); }
+  .indiv-table .indiv-tag:hover { background: var(--paper); }
+  .indiv-cell {
+    width: 48px; height: 28px; border: none; cursor: pointer; font-size: 0.85rem;
+    font-family: 'Spline Sans Mono', monospace; background: var(--card);
+  }
+  .indiv-cell.c1 { background: #d6ead9; color: var(--good); font-weight: 700; }
+  .indiv-cell.c0 { background: #f2dcd7; color: var(--bad); font-weight: 700; }
+  .indiv-cell.cx { background: var(--card); color: var(--line); }
   /* クラス/個人 切替タブ */
   .scope-tabs { display: flex; gap: 0; margin: 4px 0 14px; border-bottom: 2px solid var(--line); }
   .scope-tab {
@@ -806,7 +822,8 @@
       nStudents: 10,
       nQ: 10,
       activeTest: 0,                  // いま編集中のテスト回（0始まり）
-      tests: [ { questions:[], grid:[] } ],  // 各回のデータ
+      indivStudentIdx: 0,             // 個人別回で編集中の生徒（0始まり）
+      tests: [ { kind:'common', nQ:10, questions:[], grid:[] } ],  // 各回のデータ
       qtext: '',                      // STEP1bに貼り付けた問題文（STEP5でも参照）
       aireply: '',                    // STEP1bに貼り付けたAIの返答（保持用）
       aitagStatus: '',                // 「○問にAIタグを取り込みました」のメッセージ
@@ -1023,7 +1040,9 @@
     ensureGrid();
     let inputArea='';
     if(state.inputTab==='grid'){
-      inputArea = testTabsHTML() + gridInputHTML();
+      const at=activeTest();
+      const indiv = at && at.kind==='individual';
+      inputArea = testTabsHTML() + (indiv ? indivInputHTML() : gridInputHTML());
     } else {
       inputArea = `
         <div class="small" style="font-weight:500;margin:0 0 4px">
@@ -1147,10 +1166,17 @@
     const lv=state.live;
     let tabs='';
     lv.tests.forEach((t,i)=>{
-      // 入力済みセル数を数えて進捗表示
-      let filled=0;
-      t.grid.forEach(row=>row.forEach(v=>{ if(v===0||v===1) filled++; }));
-      const total=lv.nStudents*lv.nQ;
+      // 入力済み数を数えて進捗表示（共通/個人別で数え方が違う）
+      let filled=0, total=0;
+      if(t.kind==='individual'){
+        (t.perStudent||[]).forEach(ps=>{
+          total+=ps.nQ||0;
+          (ps.answers||[]).forEach(v=>{ if(v===0||v===1) filled++; });
+        });
+      } else {
+        total=lv.nStudents*(t.nQ||lv.nQ);
+        (t.grid||[]).forEach(row=>row.forEach(v=>{ if(v===0||v===1) filled++; }));
+      }
       const kindBadge = (t.kind==='individual')
         ? '<span class="kind-badge ind">個</span>'
         : '<span class="kind-badge com">共</span>';
@@ -1159,29 +1185,39 @@
     });
     const cur=lv.tests[lv.activeTest];
     const curKind=cur?cur.kind||'common':'common';
+    const curNQ=cur?(cur.nQ||lv.nQ):lv.nQ;
+    // 個人別回では「この生徒の問題数」を別途出すので、回スライダーは共通テスト時のみ
+    const roundQSlider = curKind==='common' ? `
+      <div class="round-q">
+        <span class="small" style="font-weight:500">第${lv.activeTest+1}回の問題数：
+          <span class="val" id="lv-roundq">${curNQ}</span></span>
+        <input type="range" id="rl-roundq" min="3" max="30" value="${curNQ}">
+        <span class="small" style="color:var(--mute)">回ごとに問題数を変えられます（初期値は第1回と同じ）</span>
+      </div>` : '';
     return `<div class="test-tabs">
       ${tabs}
       <div class="ttab add" data-ttab="add" title="テスト回を追加">＋ 回を追加</div>
       ${lv.tests.length>1?'<div class="ttab del" data-ttab="del" title="現在の回を削除">－ 削除</div>':''}
     </div>
     <div class="small" style="margin-bottom:4px">
-      編集中：<b>第${lv.activeTest+1}回</b>。タブで回を切り替え。
-      問題のタグは全回共通です（時系列比較のため）。</div>
+      編集中：<b>第${lv.activeTest+1}回</b>。タブで回を切り替え。</div>
     <div class="kind-pick">
       <span class="small" style="font-weight:500">第${lv.activeTest+1}回の種別：</span>
       <label class="kind-opt"><input type="radio" name="testkind" value="common"
         ${curKind==='common'?'checked':''}> 共通テスト（全員同じ問題・偏差値の対象）</label>
       <label class="kind-opt"><input type="radio" name="testkind" value="individual"
         ${curKind==='individual'?'checked':''}> 個人別問題（生徒ごとに違う問題・偏差値なし）</label>
-    </div>`;
+    </div>
+    ${roundQSlider}`;
   }
 
   // 本番モード：手入力グリッド（現在の編集回を表示）
   function gridInputHTML(){
     const lv=state.live;
     const at=activeTest();
+    const nQ=at.nQ||lv.nQ;
     let qhdr='<th>生徒＼問題</th>';
-    for(let q=0;q<lv.nQ;q++){
+    for(let q=0;q<nQ;q++){
       const tags=at.questions[q]||{teacher:[],ai:[]};
       qhdr+=`<th class="qhdr" title="クリックで教師タグを設定">Q${q+1}<br>
         <span style="font-size:.62rem;color:#bbb">${tags.teacher.map(t=>TAG_JA[t]).join('/')||'タグ未設定'}</span></th>`;
@@ -1189,7 +1225,7 @@
     let body='';
     for(let s=0;s<lv.nStudents;s++){
       body+=`<tr><td class="sid">S${String(s+1).padStart(2,'0')}</td>`;
-      for(let q=0;q<lv.nQ;q++){
+      for(let q=0;q<nQ;q++){
         const v=(at.grid[s]&&at.grid[s][q]!==undefined)?at.grid[s][q]:null;
         const cls=v===1?'c1':v===0?'c0':'cx';
         const label=v===1?'○':v===0?'×':'－';
@@ -1202,6 +1238,50 @@
       問題のヘッダ Q1… をクリックでタグを設定してください。</div>
       <div class="grid-input"><table class="entry">
       <thead><tr>${qhdr}</tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  // 本番モード：個人別問題の入力（1画面1生徒）
+  function indivInputHTML(){
+    const lv=state.live;
+    const at=activeTest();
+    const si=lv.indivStudentIdx||0;
+    const ps=at.perStudent[si];
+    // 生徒切替＋この生徒の問題数スライダー
+    const nav=`<div class="map-nav" style="margin-top:4px">
+      <button id="indiv-prev" ${si<=0?'disabled':''}>&#9664;</button>
+      <span class="mn-label">生徒 S${String(si+1).padStart(2,'0')} （${si+1}/${lv.nStudents}人）</span>
+      <button id="indiv-next" ${si>=lv.nStudents-1?'disabled':''}>&#9654;</button>
+      ${studentSelectHTML('indiv-select', si)}
+    </div>`;
+    const qSlider=`<div class="round-q">
+      <span class="small" style="font-weight:500">S${String(si+1).padStart(2,'0')} の問題数：
+        <span class="val" id="indiv-q">${ps.nQ}</span></span>
+      <input type="range" id="rl-indivq" min="1" max="30" value="${ps.nQ}">
+      <span class="small" style="color:var(--mute)">生徒ごとに問題数を変えられます</span>
+    </div>`;
+    // 問題ごとの行：タグ（クリックで設定）＋正誤ボタン
+    let rows='';
+    for(let q=0;q<ps.nQ;q++){
+      const tg=ps.questions[q]||{teacher:[],ai:[]};
+      const tlabel=tg.teacher.map(t=>TAG_JA[t]).join('/')||'タグ未設定';
+      const v=ps.answers[q];
+      const cls=v===1?'c1':v===0?'c0':'cx';
+      const label=v===1?'○':v===0?'×':'－';
+      rows+=`<tr>
+        <td class="sid">Q${q+1}</td>
+        <td class="indiv-tag" data-iq="${q}" title="クリックで教師タグを設定"
+          style="cursor:pointer;text-align:left;padding:4px 8px;font-size:.78rem">
+          ${tlabel}</td>
+        <td><button class="indiv-cell ${cls}" data-iq="${q}">${label}</button></td>
+      </tr>`;
+    }
+    return nav + qSlider + `
+      <div class="small" style="margin:8px 0 6px">
+        この生徒に出した問題ごとに、タグ（クリックで設定）と正誤（○×）を入力します。
+        生成AIで作った個人別問題のタグ構成をそのまま写すと、つまずきマップに反映されます。</div>
+      <div class="grid-input"><table class="entry indiv-table">
+        <thead><tr><th>問題</th><th>教師タグ</th><th>正誤</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
   }
 
   // ---- STEP 2: つまずきマップ ----
@@ -1331,7 +1411,8 @@
   // 生徒選択プルダウンのHTML。selectId はイベント紐付け用のid、
   // curIdx は現在の生徒インデックス（0始まり）。
   function studentSelectHTML(selectId, curIdx){
-    const nS=state.data.cfg.nStudents;
+    const nS = state.data ? state.data.cfg.nStudents
+      : (state.live ? state.live.nStudents : 0);
     let opts='';
     for(let s=0;s<nS;s++){
       opts+=`<option value="${s}" ${s===curIdx?'selected':''}>`
@@ -2136,24 +2217,46 @@ ${tagLines}
     const questions=[], responses=[];
     lv.tests.forEach((t,ti)=>{
       const testNo=ti+1;
-      for(let q=0;q<lv.nQ;q++){
-        const tg=t.questions[q]||{teacher:[],ai:[],teacherSource:null};
-        questions.push({test:testNo,q:q+1,
-          teacher:tg.teacher||[],ai:tg.ai||[],
-          teacherSource:tg.teacherSource||null});
-      }
-      for(let s=0;s<lv.nStudents;s++){
-        for(let q=0;q<lv.nQ;q++){
-          const v=(t.grid[s]&&t.grid[s][q]!==undefined)?t.grid[s][q]:null;
-          if(v===null) continue;
-          responses.push({test:testNo,q:q+1,student:s,correct:v});
+      if(t.kind!=='individual'){
+        // 共通テスト：全員同じ問題（q = 1..nQ）
+        const nQ=t.nQ||lv.nQ;
+        for(let q=0;q<nQ;q++){
+          const tg=t.questions[q]||{teacher:[],ai:[],teacherSource:null};
+          questions.push({test:testNo,q:q+1,
+            teacher:tg.teacher||[],ai:tg.ai||[],
+            teacherSource:tg.teacherSource||null});
+        }
+        for(let s=0;s<lv.nStudents;s++){
+          for(let q=0;q<nQ;q++){
+            const v=(t.grid[s]&&t.grid[s][q]!==undefined)?t.grid[s][q]:null;
+            if(v===null||v===undefined) continue;
+            responses.push({test:testNo,q:q+1,student:s,correct:v});
+          }
+        }
+      } else {
+        // 個人別問題：生徒ごとに別の問題。q空間を生徒ごとに分離する
+        //   qIDは (生徒index+1)*1000 + 問題番号 として衝突を防ぐ
+        for(let s=0;s<lv.nStudents;s++){
+          const ps=t.perStudent[s]; if(!ps) continue;
+          const base=(s+1)*1000;
+          for(let q=0;q<ps.nQ;q++){
+            const tg=ps.questions[q]||{teacher:[],ai:[],teacherSource:null};
+            const qid=base+q+1;
+            questions.push({test:testNo,q:qid,
+              teacher:tg.teacher||[],ai:tg.ai||[],
+              teacherSource:tg.teacherSource||null});
+            const v=ps.answers[q];
+            if(v===null||v===undefined) continue;
+            responses.push({test:testNo,q:qid,student:s,correct:v});
+          }
         }
       }
     });
     return {
       truth:null, questions, responses,
       cfg:{nStudents:lv.nStudents,nTests:lv.tests.length,nQ:lv.nQ,
-        testKinds: lv.tests.map(t=>t.kind||'common')}, mode:'live'
+        testKinds: lv.tests.map(t=>t.kind||'common'),
+        testNQs: lv.tests.map(t=>t.nQ||lv.nQ)}, mode:'live'
     };
   }
 
@@ -2260,16 +2363,29 @@ ${tagLines}
         tt.onclick=()=>{
           const v=tt.dataset.ttab;
           if(v==='add'){
-            // 新しい回を追加。問題のタグは直前の回から引き継ぐ
+            // 新しい回を追加。問題のタグは直前の回（共通テスト）から引き継ぐ
             const lv=state.live;
             const prev=lv.tests[lv.tests.length-1];
-            const newQs=prev.questions.map(q=>({teacher:[...q.teacher],ai:[],
+            const prevQs=(prev.kind==='individual')
+              ? (prev.perStudent[0]?prev.perStudent[0].questions:[])
+              : (prev.questions||[]);
+            const prevNQ=prev.nQ||lv.nQ;
+            const newQs=prevQs.map(q=>({teacher:[...(q.teacher||[])],ai:[],
               teacherSource:q.teacherSource||null}));
             // 追加回は「個人別問題」をデフォルトに（弱点補強の結果を記録する想定）。
-            // 共通テストにしたい場合は下のラジオで切り替え可能。
-            lv.tests.push({questions:newQs,grid:[],kind:'individual'});
+            lv.tests.push({kind:'individual', nQ:prevNQ, perStudent:[]});
             lv.activeTest=lv.tests.length-1;
-            ensureGrid(); render();
+            lv.indivStudentIdx=0;
+            ensureGrid();
+            // 直前回のタグを各生徒の初期問題タグに反映（任意の出発点）
+            const nt=lv.tests[lv.activeTest];
+            nt.perStudent.forEach(ps=>{
+              for(let i=0;i<ps.questions.length&&i<newQs.length;i++){
+                ps.questions[i].teacher=[...newQs[i].teacher];
+                ps.questions[i].teacherSource=newQs[i].teacherSource;
+              }
+            });
+            render();
           } else if(v==='del'){
             const lv=state.live;
             if(lv.tests.length<=1) return;
@@ -2288,8 +2404,52 @@ ${tagLines}
         r.onchange=()=>{
           ensureGrid();
           state.live.tests[state.live.activeTest].kind=r.value;
+          state.live.indivStudentIdx=0;
+          ensureGrid(); render();
+        };
+      });
+      // 共通テスト回：この回の問題数スライダー
+      const rlrq=root.querySelector('#rl-roundq');
+      if(rlrq) rlrq.oninput=()=>{
+        ensureGrid();
+        state.live.tests[state.live.activeTest].nQ=+rlrq.value;
+        root.querySelector('#lv-roundq').textContent=rlrq.value;
+        ensureGrid(); render();
+      };
+      // 個人別回：生徒切替（◀▶・プルダウン）
+      const ipPrev=root.querySelector('#indiv-prev');
+      if(ipPrev) ipPrev.onclick=()=>{
+        if(state.live.indivStudentIdx>0){ state.live.indivStudentIdx--; render(); }
+      };
+      const ipNext=root.querySelector('#indiv-next');
+      if(ipNext) ipNext.onclick=()=>{
+        if(state.live.indivStudentIdx<state.live.nStudents-1){ state.live.indivStudentIdx++; render(); }
+      };
+      const ipSel=root.querySelector('#indiv-select');
+      if(ipSel) ipSel.onchange=()=>{ state.live.indivStudentIdx=+ipSel.value; render(); };
+      // 個人別回：この生徒の問題数スライダー
+      const rliq=root.querySelector('#rl-indivq');
+      if(rliq) rliq.oninput=()=>{
+        ensureGrid();
+        const ps=activeStudentSet();
+        if(ps){ ps.nQ=+rliq.value; }
+        root.querySelector('#indiv-q').textContent=rliq.value;
+        ensureGrid(); render();
+      };
+      // 個人別回：正誤ボタン（○→×→－）
+      root.querySelectorAll('.indiv-cell').forEach(btn=>{
+        btn.onclick=()=>{
+          ensureGrid();
+          const q=+btn.dataset.iq;
+          const ps=activeStudentSet(); if(!ps) return;
+          const cur=ps.answers[q];
+          ps.answers[q]= cur===1?0 : cur===0?undefined : 1;
           render();
         };
+      });
+      // 個人別回：タグ設定（クリックでモーダル）
+      root.querySelectorAll('.indiv-tag').forEach(td=>{
+        td.onclick=()=>openIndivTagPicker(+td.dataset.iq);
       });
       // グリッドのセルクリック（○→×→－）。現在の編集回に書き込む
       root.querySelectorAll('.cell-btn').forEach(btn=>{
@@ -2398,10 +2558,15 @@ ${tagLines}
         const parsed=parseTaggingReply(reply);
         ensureGrid();
         const at=activeTest();
+        if(at.kind==='individual'){
+          state.live.aitagStatus=' 現在の編集回は個人別問題です。AIタグ付けは共通テストの回で行ってください。';
+          render(); return;
+        }
+        const nQ=at.nQ||state.live.nQ;
         let applied=0;
         Object.keys(parsed).forEach(qi=>{
           const i=+qi;
-          if(i<state.live.nQ){
+          if(i<nQ){
             at.questions[i].ai=parsed[i];
             applied++;
           }
@@ -2419,8 +2584,13 @@ ${tagLines}
       if(cpAi) cpAi.onclick=()=>{
         ensureGrid();
         const at=activeTest();
+        if(at.kind==='individual'){
+          state.live.aiCopyStatus=' 現在の編集回は個人別問題です。共通テストの回で行ってください。';
+          render(); return;
+        }
+        const nQ=at.nQ||state.live.nQ;
         let aiCount=0;
-        for(let q=0;q<state.live.nQ;q++){
+        for(let q=0;q<nQ;q++){
           if(at.questions[q]&&at.questions[q].ai&&at.questions[q].ai.length>0) aiCount++;
         }
         if(aiCount===0){
@@ -2429,7 +2599,7 @@ ${tagLines}
         }
         // 教師タグが既にある問題は、上書き確認
         let existing=0;
-        for(let q=0;q<state.live.nQ;q++){
+        for(let q=0;q<nQ;q++){
           const qq=at.questions[q];
           if(qq&&qq.teacher&&qq.teacher.length>0&&qq.teacherSource!=='ai-copy'){
             existing++;
@@ -2438,17 +2608,13 @@ ${tagLines}
         if(existing>0){
           if(!confirm(`現在 ${existing} 問に教師タグが入力されています。AIタグで上書きしますか？`)) return;
         }
-        // 全テスト回の同じQ番号にAIタグを反映
+        // 同じ共通テスト回の問題に反映（このAI取り込みは現在の回基準）
         let copied=0;
-        for(let q=0;q<state.live.nQ;q++){
+        for(let q=0;q<nQ;q++){
           const aiTags=at.questions[q]&&at.questions[q].ai?at.questions[q].ai:[];
           if(aiTags.length===0) continue;
-          state.live.tests.forEach(t=>{
-            if(t.questions[q]){
-              t.questions[q].teacher=[...aiTags];
-              t.questions[q].teacherSource='ai-copy';
-            }
-          });
+          at.questions[q].teacher=[...aiTags];
+          at.questions[q].teacherSource='ai-copy';
           copied++;
         }
         state.live.aiCopyStatus=` ${copied}問の教師タグをAIタグからコピーしました。`;
@@ -2596,21 +2762,40 @@ ${tagLines}
   }
 
   // 本番モードのグリッド配列を生徒数・問題数・テスト回数に合わせる
+  // 空の問題オブジェクトを作る
+  function emptyQuestion(){ return {teacher:[],ai:[],teacherSource:null}; }
+
   function ensureGrid(){
     const lv=state.live;
-    if(!lv.tests || lv.tests.length===0) lv.tests=[{questions:[],grid:[],kind:'common'}];
+    if(!lv.tests || lv.tests.length===0)
+      lv.tests=[{kind:'common',nQ:lv.nQ,questions:[],grid:[]}];
     lv.tests.forEach(t=>{
-      while(t.questions.length<lv.nQ)
-        t.questions.push({teacher:[],ai:[],teacherSource:null});
-      // 既存問題に teacherSource が無ければ初期化
-      t.questions.forEach(q=>{
-        if(q.teacherSource===undefined) q.teacherSource=null;
-      });
-      t.questions.length=lv.nQ;
-      while(t.grid.length<lv.nStudents) t.grid.push([]);
-      t.grid.length=lv.nStudents;
-      // テスト回の種別（common=全員同じ共通テスト / individual=個人別問題）
       if(t.kind===undefined) t.kind='common';
+      if(t.nQ===undefined || t.nQ===null) t.nQ=lv.nQ;  // 回ごとの問題数
+      if(t.kind==='common'){
+        if(!t.questions) t.questions=[];
+        while(t.questions.length<t.nQ) t.questions.push(emptyQuestion());
+        t.questions.forEach(q=>{ if(q.teacherSource===undefined) q.teacherSource=null; });
+        t.questions.length=t.nQ;
+        if(!t.grid) t.grid=[];
+        while(t.grid.length<lv.nStudents) t.grid.push([]);
+        t.grid.length=lv.nStudents;
+      } else {
+        // 個人別問題：生徒ごとに独立した問題セット
+        if(!t.perStudent) t.perStudent=[];
+        while(t.perStudent.length<lv.nStudents)
+          t.perStudent.push({nQ:t.nQ, questions:[], answers:[]});
+        t.perStudent.length=lv.nStudents;
+        t.perStudent.forEach(ps=>{
+          if(ps.nQ===undefined||ps.nQ===null) ps.nQ=t.nQ;
+          if(!ps.questions) ps.questions=[];
+          while(ps.questions.length<ps.nQ) ps.questions.push(emptyQuestion());
+          ps.questions.forEach(q=>{ if(q.teacherSource===undefined) q.teacherSource=null; });
+          ps.questions.length=ps.nQ;
+          if(!ps.answers) ps.answers=[];
+          ps.answers.length=ps.nQ;
+        });
+      }
     });
     if(lv.activeTest>=lv.tests.length) lv.activeTest=lv.tests.length-1;
   }
@@ -2624,31 +2809,56 @@ ${tagLines}
   //   'ai-edited': AIコピー後に教員が編集した
   // いま編集中のテスト回を返す
   function activeTest(){ return state.live.tests[state.live.activeTest]; }
+  // 個人別回でいま編集中の生徒の問題セットを返す
+  function activeStudentSet(){
+    const t=activeTest();
+    if(!t || t.kind!=='individual') return null;
+    ensureGrid();
+    return t.perStudent[state.live.indivStudentIdx||0];
+  }
 
   // タグ選択モーダルを開く（クリックで選択。番号入力も併用可）
   function openTagPicker(qi){
     ensureGrid();
     const at=activeTest();
     state.tagPicker={
-      open:true, qi:qi,
+      open:true, mode:'common', qi:qi,
       selected:[...(at.questions[qi].teacher||[])]
     };
     render();
   }
-  // モーダルで選んだタグを確定（全テスト回のQ(qi)に適用）
+  // 個人別回：特定生徒の特定問題のタグを編集
+  function openIndivTagPicker(qi){
+    ensureGrid();
+    const ps=activeStudentSet(); if(!ps) return;
+    state.tagPicker={
+      open:true, mode:'indiv', qi:qi,
+      studentIdx: state.live.indivStudentIdx||0,
+      selected:[...((ps.questions[qi]||{}).teacher||[])]
+    };
+    render();
+  }
+  // モーダルで選んだタグを確定
   function commitTagPicker(){
     const tp=state.tagPicker;
     const picked=[...new Set(tp.selected)];
-    state.live.tests.forEach(t=>{
-      if(t.questions[tp.qi]){
-        const q=t.questions[tp.qi];
-        const wasAI = (q.teacherSource==='ai-copy' || q.teacherSource==='ai-edited');
-        q.teacher=picked;
-        // タグの由来を更新：AI由来だったものを編集→'ai-edited'、それ以外→'manual'
-        q.teacherSource = (picked.length===0) ? null
-          : wasAI ? 'ai-edited' : 'manual';
-      }
-    });
+    const applyTo=(q)=>{
+      if(!q) return;
+      const wasAI = (q.teacherSource==='ai-copy' || q.teacherSource==='ai-edited');
+      q.teacher=picked;
+      q.teacherSource = (picked.length===0) ? null : wasAI ? 'ai-edited' : 'manual';
+    };
+    if(tp.mode==='indiv'){
+      // その生徒・その問題だけに適用
+      const t=activeTest();
+      if(t && t.kind==='individual' && t.perStudent[tp.studentIdx])
+        applyTo(t.perStudent[tp.studentIdx].questions[tp.qi]);
+    } else {
+      // 共通テスト：全共通テスト回の同じQ番号に適用（個人別回は対象外）
+      state.live.tests.forEach(t=>{
+        if(t.kind!=='individual' && t.questions[tp.qi]) applyTo(t.questions[tp.qi]);
+      });
+    }
     state.tagPicker={open:false,qi:null,selected:[]};
     render();
   }
@@ -2808,14 +3018,29 @@ ${tagLines}
     let csv='test_id,question_id,student_id,correct\n';
     let count=0;
     lv.tests.forEach((t,ti)=>{
-      for(let q=0;q<lv.nQ;q++){
+      const tid=`test${String(ti+1).padStart(2,'0')}`;
+      if(t.kind!=='individual'){
+        const nQ=t.nQ||lv.nQ;
+        for(let q=0;q<nQ;q++){
+          for(let s=0;s<lv.nStudents;s++){
+            const v=(t.grid[s]&&t.grid[s][q]!==undefined)?t.grid[s][q]:null;
+            if(v===null||v===undefined) continue;
+            csv+=`${tid},Q${String(q+1).padStart(2,'0')},`
+              +`S${String(s+1).padStart(2,'0')},${v}\n`;
+            count++;
+          }
+        }
+      } else {
+        // 個人別回：問題番号は生徒ごと（例 S01_Q01）として区別
         for(let s=0;s<lv.nStudents;s++){
-          const v=(t.grid[s]&&t.grid[s][q]!==undefined)?t.grid[s][q]:null;
-          if(v===null) continue;
-          csv+=`test${String(ti+1).padStart(2,'0')},`
-            +`Q${String(q+1).padStart(2,'0')},`
-            +`S${String(s+1).padStart(2,'0')},${v}\n`;
-          count++;
+          const ps=t.perStudent[s]; if(!ps) continue;
+          const sid=`S${String(s+1).padStart(2,'0')}`;
+          for(let q=0;q<ps.nQ;q++){
+            const v=ps.answers[q];
+            if(v===null||v===undefined) continue;
+            csv+=`${tid},${sid}_Q${String(q+1).padStart(2,'0')},${sid},${v}\n`;
+            count++;
+          }
         }
       }
     });
