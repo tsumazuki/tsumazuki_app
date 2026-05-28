@@ -1067,6 +1067,7 @@
           <button class="ghost" id="dl-template">解答CSVテンプレートを保存</button>
           <button class="ghost" id="dl-template-tags">問題タグCSVテンプレートを保存</button>
           <button class="ghost" id="export-live">入力済みデータをCSVで保存</button>
+          <button class="ghost" id="export-tags">入力済みタグをCSVで保存</button>
           <span class="small" id="csv-status"></span>
         </div>`;
     }
@@ -1081,13 +1082,10 @@
         ページを閉じるとデータは消えるため、必要に応じて「入力済みデータをCSVで保存」で
         手元に保存してください。</span>
       </div>
-      <div class="ctrl-grid" style="grid-template-columns:repeat(2,1fr);max-width:420px">
+      <div class="ctrl-grid" style="grid-template-columns:1fr;max-width:220px">
         <div class="ctrl"><label>生徒数<span class="val" id="lv-st">${lv.nStudents}</span></label>
           <input type="range" id="rl-st" min="3" max="40" value="${lv.nStudents}">
           <div class="hint">入力する人数</div></div>
-        <div class="ctrl"><label>問題数（各回）<span class="val" id="lv-q">${lv.nQ}</span></label>
-          <input type="range" id="rl-q" min="3" max="30" value="${lv.nQ}">
-          <div class="hint">1回のテストの問題数</div></div>
       </div>
       <div class="input-tabs">
         <div class="itab ${state.inputTab==='grid'?'active':''}" data-itab="grid">表に手入力</div>
@@ -2346,16 +2344,11 @@ ${tagLines}
       root.querySelectorAll('.itab').forEach(t=>{
         t.onclick=()=>{ state.inputTab=t.dataset.itab; render(); };
       });
-      // 生徒数・問題数スライダー
-      const rlst=root.querySelector('#rl-st'), rlq=root.querySelector('#rl-q');
+      // 生徒数スライダー
+      const rlst=root.querySelector('#rl-st');
       if(rlst) rlst.oninput=()=>{
         state.live.nStudents=+rlst.value;
         root.querySelector('#lv-st').textContent=rlst.value;
-        ensureGrid(); render();
-      };
-      if(rlq) rlq.oninput=()=>{
-        state.live.nQ=+rlq.value;
-        root.querySelector('#lv-q').textContent=rlq.value;
         ensureGrid(); render();
       };
       // テスト回タブ（切替・追加・削除）
@@ -2492,6 +2485,8 @@ ${tagLines}
       if(dltT) dltT.onclick=downloadCSVTemplateTags;
       const expL=root.querySelector('#export-live');
       if(expL) expL.onclick=exportLiveCSV;
+      const expT=root.querySelector('#export-tags');
+      if(expT) expT.onclick=exportTagsCSV;
       // 「この内容で分析する」
       const apply=root.querySelector('#live-apply');
       if(apply) apply.onclick=()=>{
@@ -2898,30 +2893,83 @@ ${tagLines}
     reader.onload=()=>{
       try{
         const recs=parseCSV(reader.result);
-        // test_id ごとにテスト回を復元
         const testIds=[...new Set(recs.map(r=>r.test))].sort();
-        const students=[...new Set(recs.map(r=>r.s))].sort();
-        const qs=[...new Set(recs.map(r=>r.q))].sort();
-        const sIdx={}; students.forEach((s,i)=>sIdx[s]=i);
-        const qIdx={}; qs.forEach((q,i)=>qIdx[q]=i);
         const tIdx={}; testIds.forEach((t,i)=>tIdx[t]=i);
 
-        state.live.nStudents=students.length;
-        state.live.nQ=qs.length;
-        // テスト回数ぶんの空データを用意
-        state.live.tests=testIds.map(()=>({questions:[],grid:[],kind:'common'}));
+        // question_id が SXX_QYY 形式なら個人別回と判定
+        const indivPattern=/^S\d+_Q\d+$/i;
+        const testKinds={};
+        testIds.forEach(tid=>{
+          const sample=recs.find(r=>r.test===tid);
+          testKinds[tid]=(sample&&indivPattern.test(sample.q))?'individual':'common';
+        });
+
+        // 生徒リスト（全回のstudent_idをまとめてユニーク化）
+        const students=[...new Set(recs.map(r=>r.s))].sort();
+        const sIdx={}; students.forEach((s,i)=>sIdx[s]=i);
+        const nStudents=students.length;
+
+        // 共通回の問題数をQ番号の最大値から求める
+        const commonRecs=recs.filter(r=>testKinds[r.test]==='common');
+        let maxCommonQ=0;
+        commonRecs.forEach(r=>{
+          const m=r.q.match(/(\d+)$/);
+          if(m) maxCommonQ=Math.max(maxCommonQ,parseInt(m[1],10));
+        });
+        const defaultNQ=maxCommonQ||10;
+
+        state.live.nStudents=nStudents;
+        state.live.nQ=defaultNQ;
+        state.live.tests=testIds.map(tid=>({
+          questions:[], grid:[], kind:testKinds[tid], nQ:defaultNQ, perStudent:[]
+        }));
         state.live.activeTest=0;
         ensureGrid();
-        // 各レコードを該当テスト回のグリッドに書き込む
-        recs.forEach(r=>{
-          const ti=tIdx[r.test], si=sIdx[r.s], qi=qIdx[r.q];
-          if(ti!==undefined&&si!==undefined&&qi!==undefined)
-            state.live.tests[ti].grid[si][qi]=(r.correct===1?1:0);
+
+        // 共通テスト回：グリッドに書き込む
+        recs.filter(r=>testKinds[r.test]==='common').forEach(r=>{
+          const ti=tIdx[r.test], si=sIdx[r.s];
+          if(ti===undefined||si===undefined) return;
+          const m=r.q.match(/(\d+)$/); if(!m) return;
+          const qi=parseInt(m[1],10)-1;
+          const t=state.live.tests[ti];
+          if(!t.grid[si]) t.grid[si]=[];
+          t.grid[si][qi]=(r.correct===1?1:0);
         });
+
+        // 個人別回：生徒ごとの最大問題数を求めてからperStudentに書き込む
+        testIds.filter(tid=>testKinds[tid]==='individual').forEach(tid=>{
+          const ti=tIdx[tid];
+          const t=state.live.tests[ti];
+          const testRecs=recs.filter(r=>r.test===tid);
+          const perStuMax={};
+          testRecs.forEach(r=>{
+            const si=sIdx[r.s]; if(si===undefined) return;
+            const m=r.q.match(/(\d+)$/); if(!m) return;
+            const qi=parseInt(m[1],10);
+            if(!perStuMax[si]||qi>perStuMax[si]) perStuMax[si]=qi;
+          });
+          for(let s=0;s<nStudents;s++){
+            const nQ=perStuMax[s]||defaultNQ;
+            t.perStudent[s]={nQ, questions:[], answers:[]};
+          }
+          testRecs.forEach(r=>{
+            const si=sIdx[r.s]; if(si===undefined) return;
+            const m=r.q.match(/(\d+)$/); if(!m) return;
+            const qi=parseInt(m[1],10)-1;
+            const ps=t.perStudent[si]; if(!ps) return;
+            if(!ps.answers) ps.answers=[];
+            ps.answers[qi]=(r.correct===1?1:0);
+          });
+        });
+
+        ensureGrid();
+        const nCommon=testIds.filter(tid=>testKinds[tid]==='common').length;
+        const nIndiv =testIds.filter(tid=>testKinds[tid]==='individual').length;
+        let msg=` 読込成功：テスト${testIds.length}回（共通${nCommon}・個人別${nIndiv}）× 生徒${nStudents}名。`;
+        msg+='問題のタグは「表に手入力」タブで設定してください。';
         const st=root.querySelector('#csv-status');
-        if(st) st.textContent=` 読込成功：テスト${testIds.length}回 × `
-          +`生徒${students.length}名 × 問題${qs.length}問。`
-          +'問題のタグは「表に手入力」タブで設定してください。';
+        if(st) st.textContent=msg;
         state.inputTab='grid'; render();
       }catch(e){
         const st=root.querySelector('#csv-status');
@@ -2945,48 +2993,92 @@ ${tagLines}
   }
 
   // 問題タグ用CSV（教員のタグ付け）の読み込み
-  //   形式: question_id, teacher_tags（タグはセミコロン区切り）
-  //   例: Q01,relative-clause;vocabulary
+  //   共通テスト回: question_id = Q01 形式 → 全共通テスト回の同Q番号に適用
+  //   個人別回:    question_id = S01_Q01 形式 → 該当生徒・該当回のみに適用
   function handleTagsCSV(file){
     const reader=new FileReader();
     reader.onload=()=>{
       const st=root.querySelector('#csv-status');
       try{
         const text=reader.result;
-        const lines=text.split(/\r?\n/).filter(l=>l.trim());
+        const lines=text.split(/\r?\n/).filter(l=>l.trim()&&!l.trim().startsWith('#'));
         if(lines.length===0) throw new Error('CSVが空です');
-        // ヘッダーを判定（数字で始まらなければヘッダー扱い）
         const first=lines[0].split(',').map(s=>s.trim());
-        const hasHeader = /question_id/i.test(first[0]);
-        const dataLines = hasHeader ? lines.slice(1) : lines;
+        const hasHeader=/question_id/i.test(first[0]);
+        const dataLines=hasHeader?lines.slice(1):lines;
         ensureGrid();
+        const lv=state.live;
         const validTags=new Set(TAGS);
+        const indivPattern=/^S(\d+)_Q(\d+)$/i;
         let applied=0, skipped=0, unknownTags=[];
+
+        // test_id列があれば使う（なければ全共通回に適用）
+        // ヘッダから列インデックスを取得
+        let colQ=0, colTags=1, colTest=-1;
+        if(hasHeader){
+          const h=lines[0].split(',').map(s=>s.trim().toLowerCase());
+          colQ=h.indexOf('question_id'); if(colQ<0) colQ=0;
+          colTags=h.indexOf('teacher_tags'); if(colTags<0) colTags=1;
+          colTest=h.indexOf('test_id');
+        }
+
         dataLines.forEach(line=>{
           const cols=line.split(',').map(s=>s.trim().replace(/^"|"$/g,''));
           if(cols.length<2) return;
-          const qid=cols[0];
-          const tagStr=cols[1]||'';
-          // question_id (Q01等) から問題番号インデックスを取り出す
-          const m=qid.match(/(\d+)/);
-          if(!m){ skipped++; return; }
-          const qi=parseInt(m[1],10)-1;
-          if(qi<0||qi>=state.live.nQ){ skipped++; return; }
-          // タグはセミコロンまたはカンマ区切り（行末にカンマがある形式も許容）
+          const qid=cols[colQ]||'';
+          const tagStr=cols[colTags]||'';
+          const testId=colTest>=0?(cols[colTest]||''):'';
+
+          // タグのバリデーション
           const tags=tagStr.split(/[;|]/).map(t=>t.trim()).filter(t=>t);
           const validated=[];
           tags.forEach(t=>{
             if(validTags.has(t)) validated.push(t);
-            else if(!unknownTags.includes(t)) unknownTags.push(t);
+            else if(t&&!unknownTags.includes(t)) unknownTags.push(t);
           });
-          // 全テスト回の同じQ番号に適用（時系列比較のためタグ構成は全回共通）
-          state.live.tests.forEach(test=>{
-            if(test.questions[qi]){
-              test.questions[qi].teacher=validated;
-              test.questions[qi].teacherSource = validated.length>0 ? 'manual' : null;
-            }
-          });
-          if(validated.length>0) applied++;
+
+          const indivM=qid.match(indivPattern);
+          if(indivM){
+            // 個人別形式: S01_Q01 → 指定生徒・指定回に適用
+            const si=parseInt(indivM[1],10)-1;
+            const qi=parseInt(indivM[2],10)-1;
+            // test_id が指定されていれば絞り込む
+            const targets=testId
+              ? lv.tests.filter((_,ti)=>`test${String(ti+1).padStart(2,'0')}`===testId)
+              : lv.tests.filter(t=>t.kind==='individual');
+            let wrote=false;
+            targets.forEach(t=>{
+              if(t.kind!=='individual') return;
+              const ps=t.perStudent&&t.perStudent[si];
+              if(!ps) return;
+              if(!ps.questions) ps.questions=[];
+              while(ps.questions.length<=qi) ps.questions.push({teacher:[],ai:[],teacherSource:null});
+              ps.questions[qi].teacher=validated;
+              ps.questions[qi].teacherSource=validated.length>0?'manual':null;
+              wrote=true;
+            });
+            if(wrote&&validated.length>0) applied++;
+            else if(!wrote) skipped++;
+          } else {
+            // 共通形式: Q01 → 全共通テスト回の同Q番号に適用
+            const m=qid.match(/(\d+)$/);
+            if(!m){ skipped++; return; }
+            const qi=parseInt(m[1],10)-1;
+            if(qi<0){ skipped++; return; }
+            const targets=testId
+              ? lv.tests.filter((_,ti)=>`test${String(ti+1).padStart(2,'0')}`===testId)
+              : lv.tests.filter(t=>t.kind!=='individual');
+            let wrote=false;
+            targets.forEach(t=>{
+              if(t.kind==='individual') return;
+              if(!t.questions[qi]) return;
+              t.questions[qi].teacher=validated;
+              t.questions[qi].teacherSource=validated.length>0?'manual':null;
+              wrote=true;
+            });
+            if(wrote&&validated.length>0) applied++;
+            else if(!wrote) skipped++;
+          }
         });
         let msg=` 問題タグを読込：${applied}問に教師タグを設定`;
         if(skipped>0) msg+=`（${skipped}行スキップ）`;
@@ -3006,9 +3098,66 @@ ${tagLines}
     let csv='question_id,teacher_tags\n';
     csv+='# タグはセミコロン区切り。例: Q01,relative-clause;vocabulary\n';
     csv+=`# 使用可能なタグ: ${TAGS.join(', ')}\n`;
-    for(let q=1;q<=lv.nQ;q++)
+    // 共通テスト回
+    const commonTest=lv.tests.find(t=>t.kind!=='individual');
+    const nQ=commonTest?(commonTest.nQ||lv.nQ):lv.nQ;
+    for(let q=1;q<=nQ;q++)
       csv+=`Q${String(q).padStart(2,'0')},\n`;
+    // 個人別回があれば生徒ごとに追記
+    lv.tests.forEach((t,ti)=>{
+      if(t.kind!=='individual') return;
+      const tid=`test${String(ti+1).padStart(2,'0')}`;
+      for(let s=0;s<lv.nStudents;s++){
+        const ps=t.perStudent&&t.perStudent[s];
+        const pnQ=ps?ps.nQ:(t.nQ||lv.nQ);
+        const sid=`S${String(s+1).padStart(2,'0')}`;
+        for(let q=1;q<=pnQ;q++)
+          csv+=`${sid}_Q${String(q).padStart(2,'0')},\n`;
+      }
+    });
     downloadFile(csv,'question_tags_template.csv');
+  }
+
+  // 入力済み教師タグをCSVで書き出し（保存・引き継ぎ用）
+  //   共通テスト回: test_id, question_id(Q01), teacher_tags
+  //   個人別回:    test_id, question_id(S01_Q01), teacher_tags
+  function exportTagsCSV(){
+    const lv=state.live;
+    ensureGrid();
+    let csv='test_id,question_id,teacher_tags\n';
+    let count=0;
+    lv.tests.forEach((t,ti)=>{
+      const tid=`test${String(ti+1).padStart(2,'0')}`;
+      if(t.kind!=='individual'){
+        const nQ=t.nQ||lv.nQ;
+        for(let q=0;q<nQ;q++){
+          const qq=t.questions[q]; if(!qq) continue;
+          const tags=(qq.teacher||[]).join(';');
+          if(!tags) continue;
+          csv+=`${tid},Q${String(q+1).padStart(2,'0')},${tags}\n`;
+          count++;
+        }
+      } else {
+        for(let s=0;s<lv.nStudents;s++){
+          const ps=t.perStudent&&t.perStudent[s]; if(!ps) continue;
+          const sid=`S${String(s+1).padStart(2,'0')}`;
+          for(let q=0;q<ps.nQ;q++){
+            const qq=ps.questions&&ps.questions[q]; if(!qq) continue;
+            const tags=(qq.teacher||[]).join(';');
+            if(!tags) continue;
+            csv+=`${tid},${sid}_Q${String(q+1).padStart(2,'0')},${tags}\n`;
+            count++;
+          }
+        }
+      }
+    });
+    const st=root.querySelector('#csv-status');
+    if(count===0){
+      if(st) st.textContent=' 保存できるタグデータがありません。';
+      return;
+    }
+    downloadFile(csv,'question_tags_saved.csv');
+    if(st) st.textContent=` ${count}問のタグデータをCSVに保存しました。`;
   }
 
   // 入力済みの全テスト回データをCSVで書き出し（保存・引き継ぎ用）
