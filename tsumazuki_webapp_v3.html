@@ -417,7 +417,15 @@
   }
   .itab.active { border-color: var(--ink); background: var(--ink); color: #fff; }
   /* テスト回タブ */
-  .test-tabs { display: flex; gap: 5px; margin: 4px 0 8px; flex-wrap: wrap; }
+  .test-tabs { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; }
+  .test-tabs-row {
+    display: flex; gap: 5px; align-items: center; flex-wrap: wrap;
+    min-height: 38px;
+  }
+  .test-tabs-row-label {
+    font-size: .72rem; font-weight: 700; color: var(--mute);
+    width: 52px; flex-shrink: 0; text-align: right; padding-right: 4px;
+  }
   .ttab {
     padding: 5px 13px; border: 1.5px solid var(--line); border-radius: 3px;
     cursor: pointer; font-size: 0.78rem; font-weight: 600; background: var(--card);
@@ -1221,9 +1229,8 @@
   // テスト回の切り替えタブ
   function testTabsHTML(){
     const lv=state.live;
-    let tabs='';
+    let commonTabs='', indivTabs='';
     lv.tests.forEach((t,i)=>{
-      // 入力済み数を数えて進捗表示（共通/個人別で数え方が違う）
       let filled=0, total=0;
       if(t.kind==='individual'){
         (t.perStudent||[]).forEach(ps=>{
@@ -1234,16 +1241,14 @@
         total=lv.nStudents*(t.nQ||lv.nQ);
         (t.grid||[]).forEach(row=>row.forEach(v=>{ if(v===0||v===1) filled++; }));
       }
-      const kindBadge = (t.kind==='individual')
-        ? '<span class="kind-badge ind">個</span>'
-        : '<span class="kind-badge com">共</span>';
-      tabs+=`<div class="ttab ${i===lv.activeTest?'active':''}" data-ttab="${i}">
-        第${i+1}回 ${kindBadge}<br><span class="tprog">${filled}/${total}</span></div>`;
+      const tab=`<div class="ttab ${i===lv.activeTest?'active':''}" data-ttab="${i}">
+        第${i+1}回<br><span class="tprog">${filled}/${total}</span></div>`;
+      if(t.kind==='individual') indivTabs+=tab;
+      else commonTabs+=tab;
     });
     const cur=lv.tests[lv.activeTest];
     const curKind=cur?cur.kind||'common':'common';
     const curNQ=cur?(cur.nQ||lv.nQ):lv.nQ;
-    // 個人別回では「この生徒の問題数」を別途出すので、回スライダーは共通テスト時のみ
     const roundQSlider = curKind==='common' ? `
       <div class="round-q">
         <span class="small" style="font-weight:500">第${lv.activeTest+1}回の問題数：
@@ -1252,12 +1257,19 @@
         <span class="small" style="color:var(--mute)">回ごとに問題数を変えられます（初期値は第1回と同じ）</span>
       </div>` : '';
     return `<div class="test-tabs">
-      ${tabs}
-      <div class="ttab add" data-ttab="add" title="テスト回を追加">＋ 回を追加</div>
-      ${lv.tests.length>1?'<div class="ttab del" data-ttab="del" title="現在の回を削除">－ 削除</div>':''}
+      <div class="test-tabs-row">
+        <span class="test-tabs-row-label">共通</span>
+        ${commonTabs||'<span class="small" style="color:var(--mute)">なし</span>'}
+      </div>
+      <div class="test-tabs-row">
+        <span class="test-tabs-row-label">個人別</span>
+        ${indivTabs||'<span class="small" style="color:var(--mute)">なし</span>'}
+        <div class="ttab add" data-ttab="add" title="テスト回を追加">＋ 回を追加</div>
+        ${lv.tests.length>1?'<div class="ttab del" data-ttab="del" title="現在の回を削除">－ 削除</div>':''}
+      </div>
     </div>
     <div class="small" style="margin-bottom:4px">
-      編集中：<b>第${lv.activeTest+1}回</b>。タブで回を切り替え。</div>
+      編集中：<b>第${lv.activeTest+1}回</b>（${curKind==='common'?'共通テスト':'個人別問題'}）。タブで回を切り替え。</div>
     <div class="kind-pick">
       <span class="small" style="font-weight:500">第${lv.activeTest+1}回の種別：</span>
       <label class="kind-opt"><input type="radio" name="testkind" value="common"
