@@ -873,10 +873,8 @@
       nQ: 10,
       activeTest: 0,                  // いま編集中のテスト回（0始まり）
       indivStudentIdx: 0,             // 個人別回で編集中の生徒（0始まり）
-      tests: [ { kind:'common', nQ:10, questions:[], grid:[] } ],  // 各回のデータ
-      qtext: '',                      // STEP1bに貼り付けた問題文（STEP5でも参照）
-      aireply: '',                    // STEP1bに貼り付けたAIの返答（保持用）
-      aitagStatus: '',                // 「○問にAIタグを取り込みました」のメッセージ
+      tests: [ { kind:'common', nQ:10, questions:[], grid:[],
+        qtext:'', aireply:'', aitagStatus:'' } ],  // 各回のデータ（qtext/aireply/aitagStatusも回ごと）
       aiCopyStatus: '',               // 「○問の教師タグをAIタグからコピーしました」
       aiCopyUsed: false               // 「AIタグを教師タグとして使用中」フラグ
     },
@@ -1181,7 +1179,7 @@
       <textarea id="qtext" placeholder="（任意）Q1: ここに英文と設問を貼り付け&#10;Q2: &hellip;"
         style="width:100%;min-height:90px;font-family:'Spline Sans Mono',monospace;
         font-size:.78rem;padding:8px;border:1.5px solid var(--line);border-radius:3px;
-        resize:vertical">${escapeHTML(state.live.qtext||'')}</textarea>
+        resize:vertical">${escapeHTML((activeTest()&&activeTest().qtext)||'')}</textarea>
 
       <div class="small" style="margin:10px 0 4px;font-weight:500">
         &#9313; タグ付け依頼プロンプトを生成</div>
@@ -1199,10 +1197,10 @@
       <textarea id="aireply" placeholder="Q1: relative-clause;vocabulary&#10;Q2: tense"
         style="width:100%;min-height:70px;font-family:'Spline Sans Mono',monospace;
         font-size:.78rem;padding:8px;border:1.5px solid var(--line);border-radius:3px;
-        resize:vertical">${escapeHTML(lv.aireply||'')}</textarea>
+        resize:vertical">${escapeHTML((activeTest()&&activeTest().aireply)||'')}</textarea>
       <div style="margin-top:8px">
         <button class="ghost" id="import-aitags">AIタグを取り込む</button>
-        <span class="small" id="aitag-status">${escapeHTML(lv.aitagStatus||'')}</span>
+        <span class="small" id="aitag-status">${escapeHTML((activeTest()&&activeTest().aitagStatus)||'')}</span>
       </div>
 
       <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)">
@@ -1835,7 +1833,7 @@
           });
         });
         // 不一致問題を収集してフィードバックUI用データを作る
-        const qTexts = extractQuestionTexts(state.live ? state.live.qtext : '');
+        const qTexts = extractQuestionTexts((activeTest()&&activeTest().qtext)||state.live.qtext||'');
         const mismatches = [];
         state.data.questions.forEach((q,qi)=>{
           if(!q.ai||q.ai.length===0) return;
@@ -2033,7 +2031,7 @@
         ${plan.filter(p=>p.acc<0.7).map(p=>{
           const col=tagColor(planTags,p.tag);
           const useEx = state.weakGen.useExample;
-          const example = useEx ? extractFirstQuestion(state.live.qtext||'') : null;
+          const example = useEx ? extractFirstQuestion((activeTest()&&activeTest().qtext)||state.live.qtext||'') : null;
           const promptText = buildPrompt(p, state.weakGen.level, example);
           return `<div class="qgen-block">
             <div class="qg-head"><span>${TAG_JA[p.tag]}（${p.tag}）の強化問題</span>
@@ -2293,7 +2291,7 @@ ${levelLine}
   }
   // STEP5-A用：例示問題チェックボックスのHTML
   function weakExampleCheckHTML(){
-    const qtext = state.live.qtext || '';
+    const qtext = (activeTest()&&activeTest().qtext)||state.live.qtext||'';
     const hasText = qtext.trim().length>0;
     const example = hasText ? extractFirstQuestion(qtext) : '';
     const preview = example.length>80 ? example.slice(0,80)+'…' : example;
@@ -2705,21 +2703,21 @@ ${tagLines}
 
       // 問題文の入力をstateに保存（STEP5でも参照できるよう）
       const qtTa=root.querySelector('#qtext');
-      if(qtTa) qtTa.oninput=()=>{ state.live.qtext = qtTa.value; };
+      // qtext oninput handled above via qtTa2
 
       // AIタグ付けプロンプトを作る
       const mkTag=root.querySelector('#make-tagprompt');
       if(mkTag) mkTag.onclick=()=>{
         const qtEl=root.querySelector('#qtext');
         const txt=qtEl?qtEl.value:'';
-        state.live.qtext=txt;   // 入力分を確実に同期
+        const atNow=activeTest();
+        if(atNow) atNow.qtext=txt;   // 回ごとに保存
         const prompt=buildTaggingPrompt(txt);
         root.querySelector('#tagprompt-area').innerHTML=`
           <div class="prompt-box" id="pb-tagging">${escapeHTML(prompt)}<button
             class="copy-btn" data-copy="pb-tagging">コピー</button></div>
           <div class="small" style="margin-top:5px">これをChatGPT / Claudeに貼り付け、
           返ってきた結果を下の欄②に貼り付けてください。</div>`;
-        // コピーボタンを有効化
         const cb=root.querySelector('[data-copy="pb-tagging"]');
         if(cb) cb.onclick=()=>{
           const box=root.querySelector('#pb-tagging');
@@ -2729,39 +2727,64 @@ ${tagLines}
         };
       };
 
-      // AI返答テキストエリアの入力をstateに同期（再レンダリングで失わないため）
+      // 問題文テキストエリアの入力を現在の回に同期
+      const qtTa2=root.querySelector('#qtext');
+      if(qtTa2) qtTa2.oninput=()=>{
+        const atNow=activeTest(); if(atNow) atNow.qtext=qtTa2.value;
+      };
+
+      // AI返答テキストエリアの入力を現在の回に同期
       const arEl=root.querySelector('#aireply');
-      if(arEl) arEl.oninput=()=>{ state.live.aireply = arEl.value; };
+      if(arEl) arEl.oninput=()=>{
+        const atNow=activeTest(); if(atNow) atNow.aireply=arEl.value;
+      };
 
       // AIの返答を取り込んで ai_tags に反映（現在の編集回に適用）
       const impTag=root.querySelector('#import-aitags');
       if(impTag) impTag.onclick=()=>{
         const reply=root.querySelector('#aireply').value;
-        state.live.aireply=reply;  // 確実に同期
+        ensureGrid();
+        const at=activeTest();
+        if(!at){ render(); return; }
+        at.aireply=reply;  // 確実に同期
         if(!reply.trim()){
-          state.live.aitagStatus=' AIの返答を貼り付けてください。';
+          at.aitagStatus=' AIの返答を貼り付けてください。';
           render(); return;
         }
         const parsed=parseTaggingReply(reply);
-        ensureGrid();
-        const at=activeTest();
-        if(at.kind==='individual'){
-          state.live.aitagStatus=' 現在の編集回は個人別問題です。AIタグ付けは共通テストの回で行ってください。';
-          render(); return;
-        }
-        const nQ=at.nQ||state.live.nQ;
         let applied=0;
-        Object.keys(parsed).forEach(qi=>{
-          const i=+qi;
-          if(i<nQ){
-            at.questions[i].ai=parsed[i];
-            applied++;
+        if(at.kind==='individual'){
+          // 個人別回：生徒ごとに適用（Q番号はそのまま各生徒のqi として使う）
+          const lv=state.live;
+          for(let s=0;s<lv.nStudents;s++){
+            const ps=at.perStudent&&at.perStudent[s]; if(!ps) continue;
+            Object.keys(parsed).forEach(qi=>{
+              const i=+qi;
+              if(i<ps.nQ){
+                if(!ps.questions[i]) ps.questions[i]=emptyQuestion();
+                ps.questions[i].ai=parsed[i];
+                applied++;
+              }
+            });
           }
-        });
-        if(applied===0){
-          state.live.aitagStatus=' 取り込めるタグがありません。形式 "Q1: tag;tag" を確認してください。';
+          // 重複カウント防止：問題数単位で出す
+          const appliedQ=Object.keys(parsed).filter(qi=>+qi<((at.perStudent&&at.perStudent[0]&&at.perStudent[0].nQ)||at.nQ||lv.nQ)).length;
+          if(appliedQ===0){
+            at.aitagStatus=' 取り込めるタグがありません。形式 "Q1: tag;tag" を確認してください。';
+          } else {
+            at.aitagStatus=` 第${state.live.activeTest+1}回（個人別）の${appliedQ}問にAIタグを取り込みました。`;
+          }
         } else {
-          state.live.aitagStatus=` 第${state.live.activeTest+1}回の${applied}問にAIタグを取り込みました。`;
+          const nQ=at.nQ||state.live.nQ;
+          Object.keys(parsed).forEach(qi=>{
+            const i=+qi;
+            if(i<nQ){ at.questions[i].ai=parsed[i]; applied++; }
+          });
+          if(applied===0){
+            at.aitagStatus=' 取り込めるタグがありません。形式 "Q1: tag;tag" を確認してください。';
+          } else {
+            at.aitagStatus=` 第${state.live.activeTest+1}回の${applied}問にAIタグを取り込みました。`;
+          }
         }
         render();
       };
@@ -2798,43 +2821,64 @@ ${tagLines}
         };
       };
 
-      // AIタグをそのまま教師タグとしてコピー（全テスト回に適用）
+      // AIタグをそのまま教師タグとしてコピー（現在の編集回に適用）
       const cpAi=root.querySelector('#copy-ai-to-teacher');
       if(cpAi) cpAi.onclick=()=>{
         ensureGrid();
         const at=activeTest();
-        if(at.kind==='individual'){
-          state.live.aiCopyStatus=' 現在の編集回は個人別問題です。共通テストの回で行ってください。';
-          render(); return;
-        }
-        const nQ=at.nQ||state.live.nQ;
+        const lv=state.live;
         let aiCount=0;
-        for(let q=0;q<nQ;q++){
-          if(at.questions[q]&&at.questions[q].ai&&at.questions[q].ai.length>0) aiCount++;
+        if(at.kind==='individual'){
+          (at.perStudent||[]).forEach(ps=>{
+            (ps.questions||[]).forEach(q=>{ if(q.ai&&q.ai.length>0) aiCount++; });
+          });
+        } else {
+          const nQ=at.nQ||lv.nQ;
+          for(let q=0;q<nQ;q++){
+            if(at.questions[q]&&at.questions[q].ai&&at.questions[q].ai.length>0) aiCount++;
+          }
         }
         if(aiCount===0){
           state.live.aiCopyStatus=' AIタグがまだ取り込まれていません。先に③で取り込んでください。';
           render(); return;
         }
-        // 教師タグが既にある問題は、上書き確認
+        // 教師タグが既にある問題は上書き確認
         let existing=0;
-        for(let q=0;q<nQ;q++){
-          const qq=at.questions[q];
-          if(qq&&qq.teacher&&qq.teacher.length>0&&qq.teacherSource!=='ai-copy'){
-            existing++;
+        if(at.kind==='individual'){
+          (at.perStudent||[]).forEach(ps=>{
+            (ps.questions||[]).forEach(q=>{
+              if(q.teacher&&q.teacher.length>0&&q.teacherSource!=='ai-copy') existing++;
+            });
+          });
+        } else {
+          const nQ2=at.nQ||lv.nQ;
+          for(let q=0;q<nQ2;q++){
+            const qq=at.questions[q];
+            if(qq&&qq.teacher&&qq.teacher.length>0&&qq.teacherSource!=='ai-copy') existing++;
           }
         }
         if(existing>0){
           if(!confirm(`現在 ${existing} 問に教師タグが入力されています。AIタグで上書きしますか？`)) return;
         }
-        // 同じ共通テスト回の問題に反映（このAI取り込みは現在の回基準）
         let copied=0;
-        for(let q=0;q<nQ;q++){
-          const aiTags=at.questions[q]&&at.questions[q].ai?at.questions[q].ai:[];
-          if(aiTags.length===0) continue;
-          at.questions[q].teacher=[...aiTags];
-          at.questions[q].teacherSource='ai-copy';
-          copied++;
+        if(at.kind==='individual'){
+          (at.perStudent||[]).forEach(ps=>{
+            (ps.questions||[]).forEach(q=>{
+              if(!q.ai||q.ai.length===0) return;
+              q.teacher=[...q.ai]; q.teacherSource='ai-copy'; copied++;
+            });
+          });
+          // 重複回避：問題数単位で出す
+          copied=Math.ceil(copied/Math.max(1,(at.perStudent||[]).length));
+        } else {
+          const nQ2=at.nQ||lv.nQ;
+          for(let q=0;q<nQ2;q++){
+            const aiTags=at.questions[q]&&at.questions[q].ai?at.questions[q].ai:[];
+            if(aiTags.length===0) continue;
+            at.questions[q].teacher=[...aiTags];
+            at.questions[q].teacherSource='ai-copy';
+            copied++;
+          }
         }
         state.live.aiCopyStatus=` ${copied}問の教師タグをAIタグからコピーしました。`;
         state.live.aiCopyUsed=true;
@@ -2984,11 +3028,19 @@ ${tagLines}
   // 空の問題オブジェクトを作る
   function emptyQuestion(){ return {teacher:[],ai:[],teacherSource:null}; }
 
+  function ensureTestFields(t){
+    // 回ごとのフィールドが存在しない（古いデータ互換）場合に初期化
+    if(t.qtext===undefined) t.qtext='';
+    if(t.aireply===undefined) t.aireply='';
+    if(t.aitagStatus===undefined) t.aitagStatus='';
+  }
+
   function ensureGrid(){
     const lv=state.live;
     if(!lv.tests || lv.tests.length===0)
       lv.tests=[{kind:'common',nQ:lv.nQ,questions:[],grid:[]}];
     lv.tests.forEach(t=>{
+      ensureTestFields(t);
       if(t.kind===undefined) t.kind='common';
       if(t.nQ===undefined || t.nQ===null) t.nQ=lv.nQ;  // 回ごとの問題数
       if(t.kind==='common'){
