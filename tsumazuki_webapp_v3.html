@@ -209,6 +209,12 @@
     text-align: left; font-family: 'Spline Sans Mono', monospace;
   }
   table.cmp tr:nth-child(even) td { background: var(--paper); }
+  .tag-chip { display:inline-block; padding:1px 7px; border-radius:10px; font-size:.78rem;
+    background:var(--surface); border:1px solid var(--border); margin:1px 2px; }
+  .tag-chip.bad  { background:#fde8e8; border-color:#f5a5a5; color:#b00; }
+  .tag-chip.warn { background:#fff4d6; border-color:#f0c040; color:#7a5000; }
+  .fb-qtext { font-size:.78rem; color:var(--mute); margin-top:3px;
+    white-space:pre-wrap; line-height:1.4; max-height:60px; overflow:hidden; }
 
   .callout {
     border-left: 4px solid var(--accent2); background: #eef2f1;
@@ -1763,6 +1769,59 @@
             else if(!ts.has(t)&&as.has(t))stat[t].fp++;
           });
         });
+        // 不一致問題を収集してフィードバックUI用データを作る
+        const qTexts = extractQuestionTexts(state.live ? state.live.qtext : '');
+        const mismatches = [];
+        state.data.questions.forEach((q,qi)=>{
+          if(!q.ai||q.ai.length===0) return;
+          const ts=new Set(q.teacher), as=new Set(q.ai);
+          const missed=[...ts].filter(t=>!as.has(t));
+          const extra =[...as].filter(t=>!ts.has(t));
+          if(missed.length===0&&extra.length===0) return;
+          mismatches.push({qi, qn:qi+1, teacher:[...ts], ai:[...as], missed, extra,
+            text: qTexts[qi+1]||''});
+        });
+
+        const feedbackSection = state.appMode==='live' ? (()=>{
+          if(mismatches.length===0){
+            return `<div class="callout" style="margin-top:16px">
+              ✅ すべての問題でAIタグと教師タグが一致しています。フィードバックは不要です。</div>`;
+          }
+          const rows = mismatches.map(m=>{
+            const missHtml = m.missed.length
+              ? m.missed.map(t=>`<span class="tag-chip bad">${t} ${TAG_JA[t]||''}</span>`).join(' ')
+              : '―';
+            const extHtml  = m.extra.length
+              ? m.extra.map(t=>`<span class="tag-chip warn">${t} ${TAG_JA[t]||''}</span>`).join(' ')
+              : '―';
+            const textPrev = m.text
+              ? `<div class="fb-qtext">${escapeHTML(m.text.slice(0,120))}${m.text.length>120?'…':''}</div>`
+              : '';
+            return `<tr>
+              <td style="font-weight:600">Q${m.qn}</td>
+              <td>${m.teacher.map(t=>`<span class="tag-chip">${t}</span>`).join(' ')}</td>
+              <td>${m.ai.map(t=>`<span class="tag-chip">${t}</span>`).join(' ')}</td>
+              <td>${missHtml}</td>
+              <td>${extHtml}</td>
+            </tr>
+            ${m.text?`<tr><td colspan="5" style="padding:2px 8px 8px">${textPrev}</td></tr>`:''}`;
+          }).join('');
+          return `<h3 style="margin:20px 0 6px;font-size:.95rem">
+            &#9888;&#65039; タグ不一致の問題（${mismatches.length}問）とAIフィードバック用プロンプト</h3>
+          <div class="desc">以下の問題でAIタグが教師タグと異なります。
+          タグ付け会話を継続中のAIに貼り付けることで、AIにミスを指摘して修正させられます。</div>
+          <div style="overflow-x:auto">
+          <table class="cmp">
+            <tr><th>問題</th><th>教師タグ（正解）</th><th>AIタグ</th>
+                <th>見落とし</th><th>過剰付与</th></tr>
+            ${rows}
+          </table></div>
+          <div style="margin-top:14px">
+            <button class="ghost" id="make-fbprompt">フィードバック用プロンプトを生成</button>
+          </div>
+          <div id="fb-prompt-area" style="margin-top:10px"></div>`;
+        })() : '';
+
         body=`<div class="desc">生成AIにタグ付けさせた結果と教師タグの一致度を測ります。
         一致度が高いほど、AIによるタグ付けを信頼して使えることを示します。</div>
         <div class="metrics">
@@ -1775,7 +1834,8 @@
         ${TAGS.map(t=>`<tr><td>${t} ${TAG_JA[t]}</td><td>${stat[t].tp}</td>
           <td>${stat[t].fn}</td><td>${stat[t].fp}</td></tr>`).join('')}</table>
         ${state.appMode==='dummy'?`<div class="callout warn">ダミーでは
-        <b>分詞→関係詞</b>、<b>推論→指示語</b> をAIが混同しやすく設定しています。</div>`:''}`;
+        <b>分詞→関係詞</b>、<b>推論→指示語</b> をAIが混同しやすく設定しています。</div>`:''}
+        ${feedbackSection}`;
       }
     }
     return `<div class="panel ${state.step===2?'active':''}" data-panel="2">
@@ -1999,6 +2059,55 @@
   //   questionText が空 → 問題はPDF等で別途AIに渡す前提（「上記の英語の問題」と書く）
   //   questionText に貼り付けあり → 末尾に【対象の問題】セクションとして埋め込む
   // 両方併用も可能（PDFを添付しつつテキストでも示す等）。
+  // qtextをQ番号で分割し {1: "Q1の問題文", 2: "Q2の問題文", ...} を返す
+  function extractQuestionTexts(text){
+    const result = {};
+    if(!text||!text.trim()) return result;
+    // "Q1:" "Q 2:" "Q1：" など各種表記に対応
+    const parts = text.split(/(?=(?:^|\n)\s*Q\s*\d+\s*[:：])/m);
+    parts.forEach(part=>{
+      const m = part.trim().match(/^Q\s*(\d+)\s*[:：]\s*([\s\S]*)/i);
+      if(m) result[parseInt(m[1],10)] = m[2].trim();
+    });
+    // Qで始まらない場合はQ1扱い
+    if(Object.keys(result).length===0 && text.trim())
+      result[1] = text.trim();
+    return result;
+  }
+
+  // STEP3：不一致問題リストからフィードバック用プロンプトを生成
+  //   mismatches: [{qn, teacher, ai, missed, extra, text}, ...]
+  function buildFeedbackPrompt(mismatches){
+    const tagList = TAGS.map(t=>` - ${t}（${TAG_JA[t]}）`).join('\n');
+    const header = `前回あなたが付けたタグについて、教師が確認した結果をフィードバックします。
+以下の問題でタグが正解と異なっていました。修正方針を確認した上で、
+このチャットで引き続きタグ付けをする場合の参考にしてください。
+
+【タグ一覧（使用可能なタグ）】
+${tagList}
+
+【フィードバック】`;
+
+    const items = mismatches.map(m=>{
+      const lines = [];
+      lines.push(`▼ Q${m.qn}`);
+      if(m.text) lines.push(`【問題文】\n${m.text}`);
+      lines.push(`【教師タグ（正解）】${m.teacher.join('; ')}`);
+      lines.push(`【AIが付けたタグ】${m.ai.join('; ')}`);
+      if(m.missed.length)
+        lines.push(`【見落とし】${m.missed.map(t=>`${t}（${TAG_JA[t]}）`).join('、')} → 本来付けるべきでした`);
+      if(m.extra.length)
+        lines.push(`【過剰付与】${m.extra.map(t=>`${t}（${TAG_JA[t]}）`).join('、')} → 付けるべきではありませんでした`);
+      return lines.join('\n');
+    }).join('\n\n');
+
+    const footer = `\n\n【依頼】
+上記のフィードバックを踏まえ、今後の問題に同じミスをしないよう注意してください。
+次の問題のタグ付けに進む準備ができたら「了解しました」と答えてください。`;
+
+    return `${header}\n\n${items}${footer}`;
+  }
+
   function buildTaggingPrompt(questionText){
     const tagList = TAGS.map(t=>` - ${t}（${TAG_JA[t]}）`).join('\n');
     const hasText = questionText && questionText.trim();
@@ -2572,6 +2681,38 @@ ${tagLines}
           state.live.aitagStatus=` 第${state.live.activeTest+1}回の${applied}問にAIタグを取り込みました。`;
         }
         render();
+      };
+
+      // STEP3 フィードバック用プロンプト生成ボタン
+      const mkFb=root.querySelector('#make-fbprompt');
+      if(mkFb) mkFb.onclick=()=>{
+        if(!state.data) return;
+        const qTexts = extractQuestionTexts(state.live ? state.live.qtext : '');
+        const mismatches = [];
+        state.data.questions.forEach((q,qi)=>{
+          if(!q.ai||q.ai.length===0) return;
+          const ts=new Set(q.teacher), as=new Set(q.ai);
+          const missed=[...ts].filter(t=>!as.has(t));
+          const extra =[...as].filter(t=>!ts.has(t));
+          if(missed.length===0&&extra.length===0) return;
+          mismatches.push({qi, qn:qi+1, teacher:[...ts], ai:[...as], missed, extra,
+            text: qTexts[qi+1]||''});
+        });
+        const prompt = buildFeedbackPrompt(mismatches);
+        const area = root.querySelector('#fb-prompt-area');
+        if(!area) return;
+        area.innerHTML=`<div class="prompt-box" id="pb-feedback">${escapeHTML(prompt)}<button
+          class="copy-btn" data-copy="pb-feedback">コピー</button></div>
+          <div class="small" style="margin-top:5px">
+          このプロンプトをタグ付けを依頼したAIとの<b>継続中の会話</b>に貼り付けてください。
+          AIが修正方針を確認し、次の問題へのタグ付けに備えます。</div>`;
+        const cb=area.querySelector('[data-copy="pb-feedback"]');
+        if(cb) cb.onclick=()=>{
+          const box=area.querySelector('#pb-feedback');
+          navigator.clipboard.writeText(box.childNodes[0].textContent).then(()=>{
+            cb.textContent='コピー済'; setTimeout(()=>cb.textContent='コピー',1400);
+          });
+        };
       };
 
       // AIタグをそのまま教師タグとしてコピー（全テスト回に適用）
