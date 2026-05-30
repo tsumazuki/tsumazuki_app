@@ -209,10 +209,46 @@
     text-align: left; font-family: 'Spline Sans Mono', monospace;
   }
   table.cmp tr:nth-child(even) td { background: var(--paper); }
+  /* セッション保存バー */
+  .session-bar {
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    padding:7px 16px; background:var(--surface); border-bottom:1px solid var(--border);
+    font-size:.82rem;
+  }
+  .session-label { font-weight:600; color:var(--ink); margin-right:2px; }
+  .sess-btn {
+    padding:3px 11px; border-radius:6px; border:1px solid var(--border);
+    background:#fff; font-size:.81rem; cursor:pointer; white-space:nowrap;
+    color:var(--ink); transition:background .15s;
+  }
+  .sess-btn:hover { background:var(--accent2); }
+  .sess-time { font-size:.77rem; color:var(--mute); }
+  .unsaved-badge {
+    padding:2px 9px; border-radius:10px; font-size:.77rem; font-weight:600;
+    background:#fff4d6; color:#7a5000; border:1px solid #f0c040;
+    animation: pulse-badge 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse-badge { 0%,100%{opacity:1} 50%{opacity:.6} }
+
   .tag-chip { display:inline-block; padding:1px 7px; border-radius:10px; font-size:.78rem;
     background:var(--surface); border:1px solid var(--border); margin:1px 2px; }
   .tag-chip.bad  { background:#fde8e8; border-color:#f5a5a5; color:#b00; }
   .tag-chip.warn { background:#fff4d6; border-color:#f0c040; color:#7a5000; }
+  /* CSV保存/読み込みタブ */
+  .csv-section-head {
+    font-size:.83rem; font-weight:700; color:var(--ink);
+    padding:6px 0 4px; border-bottom:2px solid var(--accent2); margin-bottom:8px;
+  }
+  .csv-save-row { display:flex; gap:10px; flex-wrap:wrap; }
+  .save-btn {
+    padding:7px 18px; border-radius:8px; font-size:.87rem; font-weight:600;
+    cursor:pointer; border:none; transition:filter .15s;
+  }
+  .primary-save {
+    background:var(--accent); color:#fff;
+  }
+  .primary-save:hover { filter:brightness(1.1); }
+
   .fb-qtext { font-size:.78rem; color:var(--mute); margin-top:3px;
     white-space:pre-wrap; line-height:1.4; max-height:60px; overflow:hidden; }
 
@@ -879,6 +915,16 @@
         <button class="mode-btn ${!isDummy?'active':''}" data-mode="live">
           <span class="dot"></span>本番モード</button>
       </div>
+      ${!isDummy ? `<div class="session-bar">
+        <span class="session-label">&#128190; セッション保存</span>
+        <button class="sess-btn" id="sess-save-json">JSONで保存</button>
+        <label class="sess-btn" id="sess-load-label">JSONを読み込む
+          <input type="file" id="sess-load-inp" accept=".json" style="display:none"></label>
+        <button class="sess-btn" id="sess-autosave-toggle">
+          ${autoSaveEnabled() ? '&#9989; 自動保存 ON' : '&#9744; 自動保存 OFF'}</button>
+        ${autoSaveEnabled() ? `<span class="sess-time" id="sess-time">${lastSaveTimeStr()}</span>` : ''}
+        ${hasUnsaved() ? '<span class="unsaved-badge">未保存の変更あり</span>' : ''}
+      </div>` : ''}
       <div class="mode-banner ${isDummy?'dummy':'live'}">
         ${isDummy
           ? '◆ ダミーモード：仮想データでシステムを検証中。実在の生徒データではありません。'
@@ -916,6 +962,8 @@
       </footer>
       ${tagPickerHTML()}`;
     bind();
+    // 本番モードのstate変化を自動保存
+    if(state.appMode==='live') autoSave();
   }
 
   // ---- STEP 1: データ準備（モードで中身が変わる） ----
@@ -1051,8 +1099,14 @@
       inputArea = testTabsHTML() + (indiv ? indivInputHTML() : gridInputHTML());
     } else {
       inputArea = `
+        <div class="csv-section-head">&#128190; データを保存する</div>
+        <div class="csv-save-row">
+          <button class="save-btn primary-save" id="export-live">&#11015; 解答データをCSV保存</button>
+          <button class="save-btn primary-save" id="export-tags">&#11015; タグをCSV保存（教師・AI）</button>
+        </div>
+        <div class="csv-section-head" style="margin-top:14px">&#128228; 保存したCSVを読み込む</div>
         <div class="small" style="font-weight:500;margin:0 0 4px">
-          &#9312; 解答データ（必須）</div>
+          &#9312; 解答データ</div>
         <div class="dropzone" id="dropzone">
           CSVファイルをここにドラッグ&ドロップ、または<b>クリックして選択</b><br>
           <span class="small">形式: test_id, question_id, student_id, correct（1=正解/0=不正解）</span><br>
@@ -1061,21 +1115,20 @@
         </div>
 
         <div class="small" style="font-weight:500;margin:12px 0 4px">
-          &#9313; 問題タグ（任意）― 教員のタグ付けを別ファイルで読み込む</div>
+          &#9313; 問題タグ（教師タグ・AIタグ）</div>
         <div class="dropzone" id="dropzone-tags">
           問題タグCSVをここにドラッグ&ドロップ、または<b>クリックして選択</b><br>
-          <span class="small">形式: question_id, teacher_tags（タグはセミコロン区切り）</span><br>
-          <span class="small">例: <code>Q01,relative-clause;vocabulary</code></span>
+          <span class="small">形式: question_id, teacher_tags, ai_tags（タグはセミコロン区切り）</span><br>
+          <span class="small">例: <code>Q01,relative-clause;vocabulary,tense</code></span>
           <input type="file" id="fileinp-tags" accept=".csv" style="display:none">
         </div>
 
-        <div style="margin-top:10px">
-          <button class="ghost" id="dl-template">解答CSVテンプレートを保存</button>
-          <button class="ghost" id="dl-template-tags">問題タグCSVテンプレートを保存</button>
-          <button class="ghost" id="export-live">入力済みデータをCSVで保存</button>
-          <button class="ghost" id="export-tags">入力済みタグをCSVで保存</button>
-          <span class="small" id="csv-status"></span>
-        </div>`;
+        <div class="csv-section-head" style="margin-top:14px">&#128462; 空テンプレートを取得</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+          <button class="ghost" id="dl-template">解答CSVテンプレート</button>
+          <button class="ghost" id="dl-template-tags">問題タグCSVテンプレート</button>
+        </div>
+        <span class="small" id="csv-status"></span>`;
     }
     return `<div class="card">
       <h2><span class="tag">STEP 1 / 本番</span>生徒の解答を入力</h2>
@@ -2402,6 +2455,24 @@ ${tagLines}
         render();
       };
     });
+    // セッション保存バー
+    const ssJson = root.querySelector('#sess-save-json');
+    if(ssJson) ssJson.onclick = exportSession;
+
+    const ssLoad = root.querySelector('#sess-load-inp');
+    if(ssLoad) ssLoad.onchange = e => {
+      if(e.target.files[0]) importSession(e.target.files[0]);
+      e.target.value = '';
+    };
+
+    const ssToggle = root.querySelector('#sess-autosave-toggle');
+    if(ssToggle) ssToggle.onclick = () => {
+      const enabled = autoSaveEnabled();
+      localStorage.setItem(LS_AUTO, enabled ? 'off' : 'on');
+      if(!enabled) autoSave(); // 有効にした瞬間に保存
+      render();
+    };
+
     // ステップタブ
     root.querySelectorAll('.step-tab').forEach(tab=>{
       tab.onclick=()=>{
@@ -3155,12 +3226,14 @@ ${tagLines}
 
         // test_id列があれば使う（なければ全共通回に適用）
         // ヘッダから列インデックスを取得
-        let colQ=0, colTags=1, colTest=-1;
+        let colQ=0, colTags=1, colTest=-1, colAiTags=-1, colSrc=-1;
         if(hasHeader){
           const h=lines[0].split(',').map(s=>s.trim().toLowerCase());
           colQ=h.indexOf('question_id'); if(colQ<0) colQ=0;
           colTags=h.indexOf('teacher_tags'); if(colTags<0) colTags=1;
           colTest=h.indexOf('test_id');
+          colAiTags=h.indexOf('ai_tags');
+          colSrc=h.indexOf('teacher_source');
         }
 
         dataLines.forEach(line=>{
@@ -3168,15 +3241,23 @@ ${tagLines}
           if(cols.length<2) return;
           const qid=cols[colQ]||'';
           const tagStr=cols[colTags]||'';
+          const aiTagStr=colAiTags>=0?(cols[colAiTags]||''):'';
+          const srcStr=colSrc>=0?(cols[colSrc]||''):'';
           const testId=colTest>=0?(cols[colTest]||''):'';
 
-          // タグのバリデーション
+          // 教師タグのバリデーション
           const tags=tagStr.split(/[;|]/).map(t=>t.trim()).filter(t=>t);
           const validated=[];
           tags.forEach(t=>{
             if(validTags.has(t)) validated.push(t);
             else if(t&&!unknownTags.includes(t)) unknownTags.push(t);
           });
+
+          // AIタグのバリデーション
+          const aiTags=aiTagStr.split(/[;|]/).map(t=>t.trim()).filter(t=>t);
+          const validatedAi=aiTags.filter(t=>validTags.has(t));
+
+          const teacherSrc=srcStr||( validated.length>0 ? 'manual' : null );
 
           const indivM=qid.match(indivPattern);
           if(indivM){
@@ -3195,7 +3276,8 @@ ${tagLines}
               if(!ps.questions) ps.questions=[];
               while(ps.questions.length<=qi) ps.questions.push({teacher:[],ai:[],teacherSource:null});
               ps.questions[qi].teacher=validated;
-              ps.questions[qi].teacherSource=validated.length>0?'manual':null;
+              if(validatedAi.length>0) ps.questions[qi].ai=validatedAi;
+              ps.questions[qi].teacherSource=teacherSrc;
               wrote=true;
             });
             if(wrote&&validated.length>0) applied++;
@@ -3214,7 +3296,8 @@ ${tagLines}
               if(t.kind==='individual') return;
               if(!t.questions[qi]) return;
               t.questions[qi].teacher=validated;
-              t.questions[qi].teacherSource=validated.length>0?'manual':null;
+              if(validatedAi.length>0) t.questions[qi].ai=validatedAi;
+              t.questions[qi].teacherSource=teacherSrc;
               wrote=true;
             });
             if(wrote&&validated.length>0) applied++;
@@ -3265,7 +3348,7 @@ ${tagLines}
   function exportTagsCSV(){
     const lv=state.live;
     ensureGrid();
-    let csv='test_id,question_id,teacher_tags\n';
+    let csv='test_id,question_id,teacher_tags,ai_tags,teacher_source\n';
     let count=0;
     lv.tests.forEach((t,ti)=>{
       const tid=`test${String(ti+1).padStart(2,'0')}`;
@@ -3273,9 +3356,11 @@ ${tagLines}
         const nQ=t.nQ||lv.nQ;
         for(let q=0;q<nQ;q++){
           const qq=t.questions[q]; if(!qq) continue;
-          const tags=(qq.teacher||[]).join(';');
-          if(!tags) continue;
-          csv+=`${tid},Q${String(q+1).padStart(2,'0')},${tags}\n`;
+          const tTags=(qq.teacher||[]).join(';');
+          const aTags=(qq.ai||[]).join(';');
+          if(!tTags&&!aTags) continue;
+          const src=qq.teacherSource||'';
+          csv+=`${tid},Q${String(q+1).padStart(2,'0')},${tTags},${aTags},${src}\n`;
           count++;
         }
       } else {
@@ -3284,9 +3369,11 @@ ${tagLines}
           const sid=`S${String(s+1).padStart(2,'0')}`;
           for(let q=0;q<ps.nQ;q++){
             const qq=ps.questions&&ps.questions[q]; if(!qq) continue;
-            const tags=(qq.teacher||[]).join(';');
-            if(!tags) continue;
-            csv+=`${tid},${sid}_Q${String(q+1).padStart(2,'0')},${tags}\n`;
+            const tTags=(qq.teacher||[]).join(';');
+            const aTags=(qq.ai||[]).join(';');
+            if(!tTags&&!aTags) continue;
+            const src=qq.teacherSource||'';
+            csv+=`${tid},${sid}_Q${String(q+1).padStart(2,'0')},${tTags},${aTags},${src}\n`;
             count++;
           }
         }
@@ -3298,7 +3385,7 @@ ${tagLines}
       return;
     }
     downloadFile(csv,'question_tags_saved.csv');
-    if(st) st.textContent=` ${count}問のタグデータをCSVに保存しました。`;
+    if(st) st.textContent=` ${count}問のタグデータ（教師タグ・AIタグ）をCSVに保存しました。`;
   }
 
   // 入力済みの全テスト回データをCSVで書き出し（保存・引き継ぎ用）
@@ -3355,6 +3442,118 @@ ${tagLines}
     downloadFile(csv,'question_plan.csv');
   }
 
+  // ============================================================
+  // A: JSONセッション保存・復元
+  // ============================================================
+  const SESSION_VERSION = 1;
+
+  function exportSession(){
+    const payload = {
+      _version: SESSION_VERSION,
+      _saved: new Date().toISOString(),
+      live: JSON.parse(JSON.stringify(state.live))
+    };
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `tsumazuki_session_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    // 保存済みフラグを更新
+    localStorage.setItem('tsumazuki_last_export', Date.now().toString());
+    localStorage.setItem('tsumazuki_saved_hash', liveHash());
+    render();
+  }
+
+  function importSession(file){
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const payload = JSON.parse(reader.result);
+        if(!payload.live) throw new Error('形式が不正です（live フィールドがありません）');
+        state.live = payload.live;
+        ensureGrid();
+        state.appMode = 'live';
+        state.data = null;
+        // 自動保存にも反映
+        autoSave();
+        const savedAt = payload._saved
+          ? new Date(payload._saved).toLocaleString('ja-JP')
+          : '不明';
+        alert(`セッションを復元しました（保存日時: ${savedAt}）\n\n` +
+          `テスト${state.live.tests.length}回・生徒${state.live.nStudents}名のデータを読み込みました。`);
+        render();
+      } catch(e) {
+        alert('JSONの読み込みに失敗しました: ' + e.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // ============================================================
+  // B: localStorage 自動保存
+  // ============================================================
+  const LS_KEY   = 'tsumazuki_autosave';
+  const LS_TIME  = 'tsumazuki_autosave_time';
+  const LS_AUTO  = 'tsumazuki_autosave_enabled';
+  const LS_HASH  = 'tsumazuki_saved_hash';
+
+  function autoSaveEnabled(){
+    return localStorage.getItem(LS_AUTO) !== 'off';
+  }
+
+  // state.live の簡易ハッシュ（変更検出用）
+  function liveHash(){
+    try { return JSON.stringify(state.live).length.toString(); }
+    catch(e){ return '0'; }
+  }
+
+  function hasUnsaved(){
+    if(!autoSaveEnabled()) return false;
+    const savedHash = localStorage.getItem(LS_HASH);
+    return savedHash !== null && savedHash !== liveHash();
+  }
+
+  function autoSave(){
+    if(!autoSaveEnabled()) return;
+    if(state.appMode !== 'live') return;
+    try {
+      localStorage.setItem(LS_KEY,  JSON.stringify(state.live));
+      localStorage.setItem(LS_TIME, Date.now().toString());
+      localStorage.setItem(LS_HASH, liveHash());
+    } catch(e){
+      console.warn('自動保存失敗:', e);
+    }
+  }
+
+  function autoLoad(){
+    if(!autoSaveEnabled()) return false;
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return false;
+    try {
+      state.live = JSON.parse(raw);
+      ensureGrid();
+      return true;
+    } catch(e){
+      return false;
+    }
+  }
+
+  function lastSaveTimeStr(){
+    const t = localStorage.getItem(LS_TIME);
+    if(!t) return '';
+    const d = new Date(parseInt(t));
+    return `最終自動保存: ${d.toLocaleTimeString('ja-JP')}`;
+  }
+
+  function clearAutoSave(){
+    if(!confirm('ブラウザに保存された自動保存データを消去しますか？')) return;
+    localStorage.removeItem(LS_KEY);
+    localStorage.removeItem(LS_TIME);
+    localStorage.removeItem(LS_HASH);
+    render();
+  }
+
   function downloadFile(text,name){
     const blob=new Blob([text],{type:'text/csv'});
     const a=document.createElement('a');
@@ -3367,8 +3566,15 @@ ${tagLines}
       .replace(/>/g,'&gt;');
   }
 
-  // 初期化
+  // 初期化：自動保存が有効なら前回セッションを復元
   ensureGrid();
+  if(autoSaveEnabled()){
+    const restored = autoLoad();
+    if(restored){
+      state.appMode = 'live';
+      // 復元通知は軽量にステータスとして表示（アラートは出さない）
+    }
+  }
   render();
 })();
 </script>
