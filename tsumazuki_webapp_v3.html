@@ -451,6 +451,12 @@
     font-family: 'Spline Sans Mono', monospace; position: sticky; top: 0;
   }
   table.entry th.qhdr { cursor: help; }
+  table.entry th.qhdr-sub {
+    cursor: help;
+    background: #e8eaea;
+    color: var(--ink);
+    border-left: 3px solid var(--accent2);
+  }
   table.entry td.sid {
     background: var(--paper); font-family: 'Spline Sans Mono', monospace;
     padding: 3px 8px; font-weight: 600; white-space: nowrap;
@@ -1247,12 +1253,17 @@
     const cur=lv.tests[lv.activeTest];
     const curKind=cur?cur.kind||'common':'common';
     const curNQ=cur?(cur.nQ||lv.nQ):lv.nQ;
+    const curMainN = cur&&cur.questions ? mainQCount(cur.questions) : curNQ;
+    const subInfo = curMainN<curNQ
+      ? '<span style="color:var(--mute);font-size:.72rem">（サブ問込み合計 '+curNQ+' 列）</span>' : '';
     const roundQSlider = curKind==='common' ? `
       <div class="round-q">
-        <span class="small" style="font-weight:500">第${lv.activeTest+1}回の問題数：
-          <span class="val" id="lv-roundq">${curNQ}</span></span>
-        <input type="range" id="rl-roundq" min="3" max="30" value="${curNQ}">
-        <span class="small" style="color:var(--mute)">回ごとに問題数を変えられます（初期値は第1回と同じ）</span>
+        <span class="small" style="font-weight:500">第${lv.activeTest+1}回の大問数：
+          <span class="val" id="lv-roundq">${curMainN}</span>
+          ${subInfo}
+        </span>
+        <input type="range" id="rl-roundq" min="3" max="30" value="${curMainN}">
+        <span class="small" style="color:var(--mute)">サブ問を除いた大問数で設定します。</span>
       </div>` : '';
     return `<div class="test-tabs">
       <div class="test-tabs-row">
@@ -1283,26 +1294,39 @@
     const lv=state.live;
     const at=activeTest();
     const nQ=at.nQ||lv.nQ;
+    const qs=at.questions;
+    const mainN=mainQCount(qs);
     let qhdr='<th>生徒＼問題</th>';
     for(let q=0;q<nQ;q++){
-      const tags=at.questions[q]||{teacher:[],ai:[]};
-      qhdr+=`<th class="qhdr" title="クリックで教師タグを設定">Q${q+1}<br>
-        <span style="font-size:.62rem;color:#bbb">${tags.teacher.map(t=>TAG_JA[t]).join('/')||'タグ未設定'}</span></th>`;
+      const tags=qs[q]||{teacher:[],ai:[],subLabel:null};
+      const isSub = tags.subLabel !== null;
+      const lbl = qLabel(q, qs);
+      const tagTxt = tags.teacher.map(t=>TAG_JA[t]).join('/')||'タグ未設定';
+      const subCls = isSub ? 'class="qhdr qhdr-sub"' : 'class="qhdr"';
+      qhdr+=`<th ${subCls} data-qi="${q}" title="クリックでタグを設定/分割">
+        ${lbl}<br>
+        <span style="font-size:.62rem;color:#bbb">${tagTxt}</span></th>`;
     }
     let body='';
     for(let s=0;s<lv.nStudents;s++){
       body+=`<tr><td class="sid">S${String(s+1).padStart(2,'0')}</td>`;
       for(let q=0;q<nQ;q++){
+        const isSub = (qs[q]||{}).subLabel !== null;
         const v=(at.grid[s]&&at.grid[s][q]!==undefined)?at.grid[s][q]:null;
         const cls=v===1?'c1':v===0?'c0':'cx';
         const label=v===1?'○':v===0?'×':'－';
-        body+=`<td><button class="cell-btn ${cls}" data-s="${s}" data-q="${q}">${label}</button></td>`;
+        const cellSt = isSub ? 'style="background:#f0f2f2"' : '';
+        body+=`<td ${cellSt}><button class="cell-btn ${cls}" data-s="${s}" data-q="${q}">${label}</button></td>`;
       }
       body+='</tr>';
     }
+    const mainInfo = mainN < nQ
+      ? `大問 ${mainN} 問（うちサブ問あり）、合計 ${nQ} 列`
+      : `${nQ} 問`;
     return `<div class="small" style="margin-bottom:6px">
       セルをクリックで ○(正解)→×(不正解)→－(未入力) と切替。
-      問題のヘッダ Q1… をクリックでタグを設定してください。</div>
+      問題のヘッダをクリックでタグを設定・問題の分割ができます。
+      現在 ${mainInfo}。</div>
       <div class="grid-input"><table class="entry">
       <thead><tr>${qhdr}</tr></thead><tbody>${body}</tbody></table></div>`;
   }
@@ -2391,8 +2415,10 @@ ${tagLines}
         // 共通テスト：全員同じ問題（q = 1..nQ）
         const nQ=t.nQ||lv.nQ;
         for(let q=0;q<nQ;q++){
-          const tg=t.questions[q]||{teacher:[],ai:[],teacherSource:null};
-          questions.push({test:testNo,q:q+1,
+          const tg=t.questions[q]||{teacher:[],ai:[],teacherSource:null,subLabel:null,parentQ:null};
+          // サブ問は parentQ+1 を q の代表値として使い、サブラベルを別途記録
+          const qNum = tg.subLabel!==null ? (tg.parentQ+1) : (q+1);
+          questions.push({test:testNo,q:qNum,subLabel:tg.subLabel||null,qIdx:q,
             teacher:tg.teacher||[],ai:tg.ai||[],
             teacherSource:tg.teacherSource||null});
         }
@@ -2400,7 +2426,9 @@ ${tagLines}
           for(let q=0;q<nQ;q++){
             const v=(t.grid[s]&&t.grid[s][q]!==undefined)?t.grid[s][q]:null;
             if(v===null||v===undefined) continue;
-            responses.push({test:testNo,q:q+1,student:s,correct:v});
+            const tg=t.questions[q]||{};
+            const qNum = tg.subLabel!==null ? (tg.parentQ+1) : (q+1);
+            responses.push({test:testNo,q:qNum,subLabel:tg.subLabel||null,qIdx:q,student:s,correct:v});
           }
         }
       } else {
@@ -2595,8 +2623,41 @@ ${tagLines}
       const rlrq=root.querySelector('#rl-roundq');
       if(rlrq) rlrq.oninput=()=>{
         ensureGrid();
-        state.live.tests[state.live.activeTest].nQ=+rlrq.value;
-        root.querySelector('#lv-roundq').textContent=rlrq.value;
+        const at=activeTest(); if(!at||at.kind==='individual') return;
+        const targetMain=+rlrq.value;
+        const curMain=mainQCount(at.questions);
+        const lv=state.live;
+        if(targetMain>curMain){
+          // 大問を末尾に追加
+          const add=targetMain-curMain;
+          for(let i=0;i<add;i++){
+            at.questions.push(emptyQuestion());
+            // grid: 各生徒行に列を追加
+            (at.grid||[]).forEach(row=>row.push(null));
+          }
+          at.nQ=at.questions.length;
+        } else if(targetMain<curMain){
+          // 末尾の大問（とそのサブ問）を削除
+          let toRemove=curMain-targetMain;
+          while(toRemove>0&&at.questions.length>0){
+            const last=at.questions.length-1;
+            const q=at.questions[last];
+            if(q.subLabel!==null){
+              // サブ問なら親ごと（兄弟サブ問も）削除
+              const pq=q.parentQ;
+              const idxs=at.questions.map((qq,i)=>qq.parentQ===pq?i:-1).filter(i=>i>=0);
+              (at.grid||[]).forEach(row=>row.splice(idxs[0],idxs.length));
+              at.questions.splice(idxs[0],idxs.length);
+              toRemove--;
+            } else {
+              (at.grid||[]).forEach(row=>row.splice(last,1));
+              at.questions.splice(last,1);
+              toRemove--;
+            }
+          }
+          at.nQ=at.questions.length;
+        }
+        root.querySelector('#lv-roundq').textContent=mainQCount(at.questions);
         ensureGrid(); render();
       };
       // 個人別回：生徒切替（◀▶・プルダウン）
@@ -2784,6 +2845,37 @@ ${tagLines}
             at.aitagStatus=' 取り込めるタグがありません。形式 "Q1: tag;tag" を確認してください。';
           } else {
             at.aitagStatus=` 第${state.live.activeTest+1}回の${applied}問にAIタグを取り込みました。`;
+            // 複数タグが付いた問題を検出して分割提案
+            if(at.kind!=='individual'){
+              const multiTagQs = [];
+              const nQ2 = at.nQ||state.live.nQ;
+              for(let i=0;i<nQ2;i++){
+                const q=at.questions[i];
+                if(q && q.ai && q.ai.length>=2 && q.subLabel===null)
+                  multiTagQs.push({qi:i, tags:q.ai, lbl:qLabel(i,at.questions)});
+              }
+              if(multiTagQs.length>0){
+                const lineItems = multiTagQs.map(function(m2){
+                  return m2.lbl+'（'+m2.tags.map(function(t){return TAG_JA[t]||t;}).join('・')+' → '+m2.tags.length+'分割）';
+                });
+                const confirmMsg = '以下の問題にAIが複数タグを付けました。\nサブ問に分割しますか？\n\n'
+                  + lineItems.join('\n') + '\n\n「OK」で分割、「キャンセル」でそのまま維持します。';
+                if(confirm(confirmMsg)){
+                  const sorted=[...multiTagQs].sort(function(a,b){return b.qi-a.qi;});
+                  sorted.forEach(function(m2){
+                    state.live.tests.forEach(function(t){
+                      if(t.kind!=='individual'&&t.questions[m2.qi]){
+                        t.questions[m2.qi].teacher=[...t.questions[m2.qi].ai];
+                        t.questions[m2.qi].teacherSource='ai-copy';
+                      }
+                    });
+                    splitQuestion(state.live.activeTest, m2.qi);
+                  });
+                  at.aitagStatus+=` ${multiTagQs.length}問をサブ問に分割しました。`;
+                  return;
+                }
+              }
+            }
           }
         }
         render();
@@ -3021,12 +3113,116 @@ ${tagLines}
       if(cancel) cancel.onclick=closeTagPicker;
       const ov=root.querySelector('#tagmodal-overlay');
       if(ov) ov.onclick=e=>{ if(e.target===ov) closeTagPicker(); };
+      // 分割ボタン
+      const splitBtn=root.querySelector('#tagmodal-split');
+      if(splitBtn&&!splitBtn.disabled) splitBtn.onclick=()=>{
+        const tp=state.tagPicker;
+        // タグを確定してから分割
+        const picked=[...new Set(tp.selected)];
+        state.live.tests.forEach(t=>{
+          if(t.kind!=='individual'&&t.questions[tp.qi]){
+            t.questions[tp.qi].teacher=picked;
+            t.questions[tp.qi].teacherSource='manual';
+          }
+        });
+        state.tagPicker={open:false,qi:null,selected:[]};
+        splitQuestion(state.live.activeTest, tp.qi);
+      };
+      // 結合ボタン
+      const mergeBtn=root.querySelector('#tagmodal-merge');
+      if(mergeBtn) mergeBtn.onclick=()=>{
+        const tp=state.tagPicker;
+        state.tagPicker={open:false,qi:null,selected:[]};
+        mergeSubQuestions(state.live.activeTest, tp.qi);
+      };
     }
   }
 
   // 本番モードのグリッド配列を生徒数・問題数・テスト回数に合わせる
   // 空の問題オブジェクトを作る
-  function emptyQuestion(){ return {teacher:[],ai:[],teacherSource:null}; }
+  function emptyQuestion(){ return {teacher:[],ai:[],teacherSource:null,subLabel:null,parentQ:null}; }
+
+  // 問題ラベル文字列  Q3 / Q3-a / Q3-b ...
+  function qLabel(qi, questions){
+    const q = questions[qi];
+    if(!q) return `Q${qi+1}`;
+    const base = q.parentQ !== null ? q.parentQ+1 : qi+1;
+    return q.subLabel ? `Q${base}-${q.subLabel}` : `Q${base}`;
+  }
+
+  // 大問数を返す（サブ問を除く）
+  function mainQCount(questions){
+    return questions.filter(q=>q.subLabel===null).length;
+  }
+
+  // Q${qi}（共通テスト回）を複数サブ問に分割する
+  // tags 配列の長さぶんサブ問を作り、元の正誤を各サブ問にコピー
+  function splitQuestion(testIdx, qi){
+    const lv = state.live;
+    lv.tests.forEach((t, ti) => {
+      if(t.kind==='individual') return;
+      // qi 番目を削除し、サブ問を挿入
+      const orig = t.questions[qi] || emptyQuestion();
+      const tags  = orig.teacher.length ? orig.teacher : orig.ai.length ? orig.ai : [''];
+      const subs  = tags.map((tag, idx) => ({
+        ...emptyQuestion(),
+        teacher: tag ? [tag] : [],
+        ai: tag ? [tag] : [],
+        teacherSource: orig.teacherSource,
+        subLabel: String.fromCharCode(97 + idx),  // 'a','b','c'...
+        parentQ: qi
+      }));
+      t.questions.splice(qi, 1, ...subs);
+      t.nQ = t.nQ + tags.length - 1;
+      // grid: 各生徒の qi 列を削除し、サブ問列を挿入（同じ値をコピー）
+      (t.grid||[]).forEach(row => {
+        const orig_v = row[qi] !== undefined ? row[qi] : null;
+        const newCols = subs.map(() => orig_v);
+        row.splice(qi, 1, ...newCols);
+      });
+      // parentQ インデックスを再計算（qi より後の問題はシフト）
+      const inserted = subs.length - 1;
+      for(let i=qi+subs.length; i<t.questions.length; i++){
+        const q = t.questions[i];
+        if(q.parentQ !== null && q.parentQ >= qi) q.parentQ += inserted;
+      }
+    });
+    ensureGrid();
+    render();
+  }
+
+  // Q${qi}（サブ問の1つを指定）を結合して1問に戻す
+  function mergeSubQuestions(testIdx, qi){
+    const lv = state.live;
+    lv.tests.forEach((t, ti) => {
+      if(t.kind==='individual') return;
+      const q = t.questions[qi];
+      if(!q || q.subLabel===null) return;
+      const pq = q.parentQ;
+      // 同じ parentQ を持つ全サブ問のインデックスを収集
+      const idxs = t.questions.map((qq,i)=>qq.parentQ===pq ? i : -1).filter(i=>i>=0);
+      // 結合後の問題（タグは全サブ問の union）
+      const merged = emptyQuestion();
+      merged.teacher = [...new Set(idxs.flatMap(i=>t.questions[i].teacher))];
+      merged.ai      = [...new Set(idxs.flatMap(i=>t.questions[i].ai))];
+      merged.teacherSource = t.questions[idxs[0]].teacherSource;
+      // グリッド：先頭サブ問の値を代表値として使う
+      (t.grid||[]).forEach(row => {
+        const val = row[idxs[0]] !== undefined ? row[idxs[0]] : null;
+        row.splice(idxs[0], idxs.length, val);
+      });
+      t.questions.splice(idxs[0], idxs.length, merged);
+      t.nQ = t.nQ - idxs.length + 1;
+      // parentQ インデックスを再計算
+      const removed = idxs.length - 1;
+      for(let i=idxs[0]+1; i<t.questions.length; i++){
+        const qq = t.questions[i];
+        if(qq.parentQ !== null && qq.parentQ > pq) qq.parentQ -= removed;
+      }
+    });
+    ensureGrid();
+    render();
+  }
 
   function ensureTestFields(t){
     // 回ごとのフィールドが存在しない（古いデータ互換）場合に初期化
@@ -3149,13 +3345,43 @@ ${tagLines}
         <span>${TAG_JA[t]}<br><span style="font-size:.66rem;opacity:.6">${t}</span></span>
       </div>`;
     }).join('');
-    return `<div class="modal-overlay" id="tagmodal-overlay">
-      <div class="modal">
-        <h3>Q${tp.qi+1} の教師タグを選択</h3>
-        <div class="msub">クリックで選択／解除（複数可）。
-        ここで設定したタグは全テスト回のQ${tp.qi+1}に共通で適用されます。</div>
-        <div class="tag-pick-grid">${cells}</div>
-        <div class="modal-actions">
+    // 分割/結合ボタン（共通テスト回のみ）
+    const at=activeTest();
+    const isCommon = tp.mode==='common';
+    let splitMergeBtns='';
+    if(isCommon && at){
+      const q = at.questions[tp.qi];
+      const isSub = q && q.subLabel!==null;
+      if(isSub){
+        splitMergeBtns=`<button class="ghost" id="tagmodal-merge"
+          style="color:var(--bad);border-color:var(--bad)">
+          &#10548; Q${q.parentQ+1} に結合（サブ問を解除）</button>`;
+      } else {
+        const tagCount = tp.selected.length;
+        const qlb = qLabel(tp.qi, at.questions);
+        if(tagCount >= 2){
+          splitMergeBtns = '<button class="ghost" id="tagmodal-split"'
+            +' style="color:var(--accent);border-color:var(--accent)">'
+            +'&#10549; '+tagCount+'タグで分割 → '+qlb+'-a〜'+String.fromCharCode(96+tagCount)+'</button>';
+        } else {
+          splitMergeBtns = '<button class="ghost" id="tagmodal-split" disabled'
+            +' title="タグを2つ以上選択すると分割できます" style="opacity:.45">'
+            +'&#10549; タグを2つ以上選択で分割可能</button>';
+        }
+      }
+    }
+    const lbl = at ? qLabel(tp.qi, at.questions) : 'Q'+(tp.qi+1);
+    const modeDesc = tp.mode==='common'
+      ? 'ここで設定したタグは全共通テスト回の'+lbl+'に適用されます。'
+      : 'この生徒のこの問題に適用されます。';
+    return '<div class="modal-overlay" id="tagmodal-overlay">'
+      +'<div class="modal">'
+      +'<h3>'+lbl+' の教師タグを選択</h3>'
+      +'<div class="msub">クリックで選択／解除（複数可）。'+modeDesc+'</div>'
+      +`<div class="tag-pick-grid">${cells}</div>
+        <div class="modal-actions" style="flex-wrap:wrap;gap:6px">
+          ${splitMergeBtns}
+          <div style="flex:1"></div>
           <button class="ghost" id="tagmodal-cancel">キャンセル</button>
           <button class="run" id="tagmodal-ok" style="margin-right:0">
             ${tp.selected.length}個を確定</button>
@@ -3163,6 +3389,7 @@ ${tagLines}
       </div>
     </div>`;
   }
+
 
   function handleCSV(file){
     const reader=new FileReader();
@@ -3202,15 +3429,37 @@ ${tagLines}
         state.live.activeTest=0;
         ensureGrid();
 
-        // 共通テスト回：グリッドに書き込む
-        recs.filter(r=>testKinds[r.test]==='common').forEach(r=>{
-          const ti=tIdx[r.test], si=sIdx[r.s];
-          if(ti===undefined||si===undefined) return;
-          const m=r.q.match(/(\d+)$/); if(!m) return;
-          const qi=parseInt(m[1],10)-1;
+        // 共通テスト回：サブ問を考慮してグリッドに書き込む
+        // question_id形式: Q01（通常）/ Q01a, Q01b（サブ問）
+        // まずサブ問マップを構築してから questions と grid を組み立てる
+        testIds.filter(tid=>testKinds[tid]==='common').forEach(tid=>{
+          const ti=tIdx[tid];
           const t=state.live.tests[ti];
-          if(!t.grid[si]) t.grid[si]=[];
-          t.grid[si][qi]=(r.correct===1?1:0);
+          const testRecs=recs.filter(r=>r.test===tid);
+          // question_id → qi マッピングを構築（出現順）
+          const qidOrder=[];
+          testRecs.forEach(r=>{
+            if(!qidOrder.includes(r.q)) qidOrder.push(r.q);
+          });
+          qidOrder.sort(); // Q01 < Q01a < Q01b < Q02...
+          // 列数を再設定
+          t.nQ=qidOrder.length;
+          t.questions=qidOrder.map(qid=>{
+            const m=qid.match(/^Q(\d+)([a-z]?)$/i);
+            const q=emptyQuestion();
+            if(m&&m[2]){
+              q.subLabel=m[2].toLowerCase();
+              q.parentQ=parseInt(m[1],10)-1;
+            }
+            return q;
+          });
+          t.grid=[];
+          for(let s=0;s<nStudents;s++) t.grid.push(new Array(qidOrder.length).fill(null));
+          testRecs.forEach(r=>{
+            const si=sIdx[r.s]; if(si===undefined) return;
+            const qi=qidOrder.indexOf(r.q); if(qi<0) return;
+            t.grid[si][qi]=(r.correct===1?1:0);
+          });
         });
 
         // 個人別回：生徒ごとの最大問題数を求めてからperStudentに書き込む
@@ -3347,18 +3596,27 @@ ${tagLines}
             if(wrote&&validated.length>0) applied++;
             else if(!wrote) skipped++;
           } else {
-            // 共通形式: Q01 → 全共通テスト回の同Q番号に適用
-            const m=qid.match(/(\d+)$/);
-            if(!m){ skipped++; return; }
-            const qi=parseInt(m[1],10)-1;
-            if(qi<0){ skipped++; return; }
+            // 共通形式: Q01 / Q01a (サブ問) → 全共通テスト回の対応する問題に適用
+            const mSub=qid.match(/^Q(\d+)([a-z]?)$/i);
+            if(!mSub){ skipped++; return; }
+            const parentIdx=parseInt(mSub[1],10)-1;
+            const subLbl=mSub[2]?mSub[2].toLowerCase():null;
             const targets=testId
               ? lv.tests.filter((_,ti)=>`test${String(ti+1).padStart(2,'0')}`===testId)
               : lv.tests.filter(t=>t.kind!=='individual');
             let wrote=false;
             targets.forEach(t=>{
               if(t.kind==='individual') return;
-              if(!t.questions[qi]) return;
+              // 対応するqiを探す
+              let qi=-1;
+              if(subLbl){
+                qi=t.questions.findIndex(q=>q.subLabel===subLbl&&q.parentQ===parentIdx);
+              } else {
+                // サブ問なし：parentQ===parentIdx かつ subLabel===null の問題
+                qi=t.questions.findIndex((q,i)=>q.subLabel===null&&(i===parentIdx||(q.parentQ===null&&i===parentIdx)));
+                if(qi<0) qi=parentIdx; // フォールバック
+              }
+              if(qi<0||!t.questions[qi]) return;
               t.questions[qi].teacher=validated;
               if(validatedAi.length>0) t.questions[qi].ai=validatedAi;
               t.questions[qi].teacherSource=teacherSrc;
@@ -3424,7 +3682,11 @@ ${tagLines}
           const aTags=(qq.ai||[]).join(';');
           if(!tTags&&!aTags) continue;
           const src=qq.teacherSource||'';
-          csv+=`${tid},Q${String(q+1).padStart(2,'0')},${tTags},${aTags},${src}\n`;
+          const baseNum = qq.subLabel!==null ? qq.parentQ+1 : q+1;
+          const qid = qq.subLabel
+            ? `Q${String(baseNum).padStart(2,'0')}${qq.subLabel}`
+            : `Q${String(q+1).padStart(2,'0')}`;
+          csv+=`${tid},${qid},${tTags},${aTags},${src}\n`;
           count++;
         }
       } else {
@@ -3463,11 +3725,15 @@ ${tagLines}
       if(t.kind!=='individual'){
         const nQ=t.nQ||lv.nQ;
         for(let q=0;q<nQ;q++){
+          const qq=t.questions&&t.questions[q];
+          const baseNum = qq&&qq.subLabel!==null ? qq.parentQ+1 : q+1;
+          const qid = qq&&qq.subLabel
+            ? `Q${String(baseNum).padStart(2,'0')}${qq.subLabel}`
+            : `Q${String(q+1).padStart(2,'0')}`;
           for(let s=0;s<lv.nStudents;s++){
             const v=(t.grid[s]&&t.grid[s][q]!==undefined)?t.grid[s][q]:null;
             if(v===null||v===undefined) continue;
-            csv+=`${tid},Q${String(q+1).padStart(2,'0')},`
-              +`S${String(s+1).padStart(2,'0')},${v}\n`;
+            csv+=`${tid},${qid},S${String(s+1).padStart(2,'0')},${v}\n`;
             count++;
           }
         }
