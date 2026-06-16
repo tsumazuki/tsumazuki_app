@@ -29,6 +29,7 @@
 <meta name="twitter:title" content="つまずきマップ研究シミュレータ">
 <meta name="twitter:description" content="英語読解のAI活用授業 ／ 弱点分析・AIタグ検証・問題自動生成">
 <meta name="twitter:image" content="https://tsumazuki.github.io/tsumazuki_app/screenshot.jpg">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -209,6 +210,50 @@
     text-align: left; font-family: 'Spline Sans Mono', monospace;
   }
   table.cmp tr:nth-child(even) td { background: var(--paper); }
+  /* 生徒別プロンプト・QRコード */
+  .stu-prompt-list { display:flex; flex-direction:column; gap:16px; margin-top:12px; }
+  .stu-prompt-card {
+    border:1px solid var(--border); border-radius:8px; overflow:hidden;
+  }
+  .stu-prompt-head {
+    display:flex; align-items:center; gap:10px;
+    padding:8px 14px; background:var(--surface); border-bottom:1px solid var(--border);
+    font-size:.85rem; font-weight:700;
+  }
+  .stu-acc-pill {
+    font-size:.73rem; font-weight:600; padding:2px 8px; border-radius:10px;
+    background:#fde8e8; color:#b00;
+  }
+  .stu-acc-pill.mid { background:#fff4d6; color:#7a5000; }
+  .stu-acc-pill.ok  { background:#e8f5e9; color:#2d5a3a; }
+  .stu-prompt-body { padding:10px 14px; }
+  .stu-weak-tags { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:8px; }
+  .stu-weak-tag {
+    font-size:.73rem; padding:2px 8px; border-radius:10px;
+    background:#fde8e8; color:#b00; border:1px solid #f5a5a5;
+  }
+  .qr-area { display:flex; align-items:flex-start; gap:14px; margin-top:8px; }
+  .qr-canvas-wrap {
+    flex-shrink:0; background:#fff; padding:6px; border-radius:6px;
+    border:1px solid var(--border); display:none;
+  }
+  .qr-canvas-wrap.show { display:block; }
+  .qr-prompt-text {
+    flex:1; font-size:.74rem; font-family:'Spline Sans Mono',monospace;
+    white-space:pre-wrap; word-break:break-all;
+    background:#f8f8f6; border:1px solid var(--border); border-radius:5px;
+    padding:8px; max-height:160px; overflow-y:auto; color:var(--ink);
+  }
+  .qr-btns { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  .qr-note { font-size:.72rem; color:var(--mute); margin-top:4px; }
+  .all-stu-btn {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:7px 16px; border-radius:8px; font-size:.85rem; font-weight:600;
+    background:var(--accent); color:#fff; border:none; cursor:pointer;
+    margin-bottom:12px;
+  }
+  .all-stu-btn:hover { filter:brightness(1.1); }
+
   /* セッション保存バー */
   .session-bar {
     display:flex; align-items:center; gap:8px; flex-wrap:wrap;
@@ -2068,6 +2113,20 @@
         <div class="callout">この出題計画と生成問題を${isStu?'この生徒':'生徒'}に解かせ、次のテストで
         同じタグの正答率が上がるかを追うことで、弱点に連動した指導の効果を測定できます。
         解かせた結果は、STEP 1 で新しいテスト回として記録すると、STEP 2 の推移で確認できます。</div>
+
+        ${isStu ? `
+        <div style="margin-top:20px;padding-top:16px;border-top:2px solid var(--border)">
+          <h2 style="font-size:.95rem;margin:0 0 6px">
+            &#127891; 全生徒分の弱点補強プロンプト（QRコード付き）</h2>
+          <div class="desc">生徒全員ぶんの個別プロンプトをまとめて生成します。
+          各カードのQRコードをテスト返却時に配布することで、
+          生徒が自分の弱点に特化したAI学習をすぐに始められます。</div>
+          <button class="all-stu-btn" id="gen-all-stu-prompts">
+            &#9654; 全${nS}人分のプロンプトを生成
+          </button>
+          <div id="all-stu-prompt-list"></div>
+        </div>` : ''}
+
         <div class="navbtns">
           <button class="ghost" id="export-plan">出題計画をCSVで保存</button>
         </div></div>`;
@@ -2288,6 +2347,164 @@ ${levelLine}
      - 各問題の正解と、なぜその選択肢が正解かの解説
      - 各問題が「${p.tag}」を問うていることが分かる箇所の明示
 問題部分はそのまま生徒に配布できる形式にすること。`;
+  }
+
+  // 生徒一人分のパーソナライズプロンプトを生成
+  // 弱点TOP（acc < 0.7）を最大3タグ抽出し、その生徒専用の文面を組み立てる
+  function buildPromptForStudent(data, studentIdx, levelName, exampleText){
+    const map = buildMapForStudent(data, studentIdx, null);
+    const weakTags = TAGS
+      .filter(t => map[t] !== null && map[t] < 0.7)
+      .sort((a,b) => map[a]-map[b])
+      .slice(0, 3);
+    if(weakTags.length === 0) return null; // 弱点なし
+
+    const sid = 'S'+String(studentIdx+1).padStart(2,'0');
+    const totalAcc = TAGS.filter(t=>map[t]!==null).length > 0
+      ? TAGS.filter(t=>map[t]!==null).reduce((a,t)=>a+map[t],0)
+        / TAGS.filter(t=>map[t]!==null).length
+      : null;
+
+    const weakDesc = weakTags
+      .map(t=>`・${TAG_JA[t]}（${t}）― 正答率 ${(map[t]*100).toFixed(0)}%`)
+      .join('\n');
+
+    let levelLine, wordsLine;
+    if(levelName){
+      const lv = levelInfo(levelName);
+      levelLine = `【対象の学年・レベル】${lv.name}（CEFR ${lv.cefr} 相当）― ${lv.note}`;
+      wordsLine = `${lv.words}程度の英文パッセージ（課題文）`;
+    } else {
+      levelLine = `【対象】高校生`;
+      wordsLine = `80〜120語程度の英文パッセージ（課題文）`;
+    }
+
+    const totalQs = weakTags.length * 3; // 各弱点タグにつき3問
+    const tagSections = weakTags.map(t=>{
+      const acc = map[t];
+      const priority = acc < 0.4 ? '最優先（基礎から丁寧に）'
+                     : acc < 0.6 ? '重点強化（標準レベルで）'
+                     : '底上げ（やや応用も含めて）';
+      return `◆ ${TAG_JA[t]}（${t}）― 正答率 ${(acc*100).toFixed(0)}%　→ ${priority}　3問`;
+    }).join('\n');
+
+    const exampleBlock = exampleText && exampleText.trim()
+      ? `\n【難易度の見本】次の問題と同程度の難易度・語彙・構文レベルで作成してください。\n（あくまで難易度の目安。見本をそのまま真似た問題は作らない。）\n─────\n${exampleText.trim()}\n─────\n`
+      : '';
+
+    return `あなたは英語の問題作成者です。
+以下の生徒の弱点データに基づき、個別強化問題を合計${totalQs}問作成してください。
+
+【生徒ID】${sid}
+【この生徒の弱点】
+${weakDesc}
+
+【出題内訳】
+${tagSections}
+
+${levelLine}
+【各問題の構成】
+ - ${wordsLine}
+ - その英文に関する設問1つ（4択）
+【使用言語】英文パッセージは英語で。設問・選択肢・解説は日本語で。
+【難易度】各タグの問題はすべて同程度の難易度に揃えること。${exampleBlock}
+【出力の順序】
+ 1. まず全問題（英文＋設問＋選択肢）を続けて出力する。正解・解説は書かない。
+ 2. 全問題の後に「───」で区切り、「【解答・解説】」として各問の正解と解説を出力する。
+問題部分はそのまま生徒に配布できる形式にすること。`;
+  }
+
+  // 全生徒分のプロンプトカードHTMLを生成（STEP5-A 個人モード用）
+  function buildAllStudentPromptsHTML(data, levelName, exampleText){
+    const nS = data.cfg.nStudents;
+    const cards = [];
+    for(let si=0; si<nS; si++){
+      const map = buildMapForStudent(data, si, null);
+      const weakTags = TAGS
+        .filter(t=>map[t]!==null && map[t]<0.7)
+        .sort((a,b)=>map[a]-map[b])
+        .slice(0,3);
+      const validTags = TAGS.filter(t=>map[t]!==null);
+      const totalAcc = validTags.length
+        ? validTags.reduce((a,t)=>a+map[t],0)/validTags.length : null;
+      const sid = 'S'+String(si+1).padStart(2,'0');
+      const accPct = totalAcc!==null ? Math.round(totalAcc*100) : null;
+      const pillCls = accPct===null?'': accPct>=70?'ok': accPct>=50?'mid':'';
+
+      if(weakTags.length===0){
+        cards.push(`<div class="stu-prompt-card">
+          <div class="stu-prompt-head">
+            <span>${sid}</span>
+            ${accPct!==null?`<span class="stu-acc-pill ok">総合 ${accPct}%</span>`:''}
+            <span style="color:var(--good);font-size:.8rem">✅ 弱点なし（全タグ70%以上）</span>
+          </div>
+        </div>`);
+        continue;
+      }
+
+      const prompt = buildPromptForStudent(data, si, levelName, exampleText);
+      const pid = 'stu-pb-'+si;
+      const tagPills = weakTags.map(t=>`<span class="stu-weak-tag">${TAG_JA[t]} ${(map[t]*100).toFixed(0)}%</span>`).join('');
+
+      cards.push(`<div class="stu-prompt-card">
+        <div class="stu-prompt-head">
+          <span>${sid}</span>
+          ${accPct!==null?`<span class="stu-acc-pill ${pillCls}">総合 ${accPct}%</span>`:''}
+          <span style="font-weight:400;font-size:.78rem;color:var(--mute)">弱点${weakTags.length}タグ</span>
+        </div>
+        <div class="stu-prompt-body">
+          <div class="stu-weak-tags">${tagPills}</div>
+          <div class="qr-area">
+            <div class="qr-canvas-wrap" id="qr-wrap-${si}"></div>
+            <div style="flex:1">
+              <div class="qr-prompt-text" id="${pid}">${escapeHTML(prompt||'')}</div>
+              <div class="qr-btns">
+                <button class="ghost" data-copy-stu="${si}" title="詳細な指示を含む完全版プロンプトをコピー">&#128203; コピー（完全版）</button>
+                <button class="ghost" data-qr-stu="${si}" title="生徒がスキャンして即AIに貼り付けられる簡易QRを生成">&#9636; QRコード（簡易版）</button>
+                <button class="ghost" data-qr-dl="${si}" style="display:none">&#11015; QR画像を保存</button>
+              </div>
+              <div class="qr-note" id="qr-note-${si}"></div>
+            </div>
+          </div>
+        </div>
+      </div>`);
+    }
+    return cards.join('');
+  }
+
+  // QRコード用プロンプト（完全ASCII・qrcodejsのescape()計測対策）
+  // qrcodejsは内部でescape()を使うため日本語1文字が約6倍に膨張する。
+  // 純粋なASCIIなら1文字=1単位。ECC L上限2956内に収まる。
+  // 完全版（日本語）はコピーボタンで別途配布。
+  function buildShortPromptForQR(data, studentIdx, levelName){
+    const map = buildMapForStudent(data, studentIdx, null);
+    const weakTags = TAGS
+      .filter(t=>map[t]!==null && map[t]<0.7)
+      .sort((a,b)=>map[a]-map[b])
+      .slice(0,3);
+    if(weakTags.length===0) return null;
+
+    const sid = 'S'+String(studentIdx+1).padStart(2,'0');
+    // 学年をASCII表記にマップ
+    const lvMap = {'中1':'JHS1','中2':'JHS2','中3':'JHS3',
+                   '高1':'SHS1','高2':'SHS2','高3':'SHS3'};
+    const lvStr = levelName ? (lvMap[levelName]||levelName) : 'SHS';
+    const totalQ = weakTags.length * 3;
+
+    // タグ名はすでにASCII（relative-clause等）
+    const tagLines = weakTags.map(t=>{
+      const pct = Math.round(map[t]*100);
+      const pri = map[t]<0.5 ? '[TOP]' : '[MID]';
+      return `-${t} ${pct}% =>${3}Qs${pri}`;
+    }).join('\n');
+
+    // 出力はすべてASCII（スラッシュ・括弧等で簡略化）
+    return `${totalQ} English reading Qs for ${sid} (${lvStr}).
+Weak areas:
+${tagLines}
+Each Q: 80-140 word passage + 4-choice Q.
+Passage=English, Qs/choices/answers=Japanese.
+Print all ${totalQ} Qs first, then [---] then answers.`;
   }
 
   // 難易度レベル（中1〜高3）。CEFR と語数の目安を併記して生成AIに伝わりやすくする
@@ -3025,6 +3242,87 @@ ${tagLines}
     if(wex) wex.onchange=()=>{
       state.weakGen.useExample = wex.checked;
       render();
+    };
+
+    // STEP5-A 全生徒プロンプト生成ボタン
+    const genAllBtn = root.querySelector('#gen-all-stu-prompts');
+    if(genAllBtn) genAllBtn.onclick = ()=>{
+      if(!state.data) return;
+      const wg = state.weakGen;
+      const levelName = wg.level || null;
+      const exText = wg.useExample
+        ? extractFirstQuestion((activeTest()&&activeTest().qtext)||state.live.qtext||'')
+        : null;
+      const listEl = root.querySelector('#all-stu-prompt-list');
+      if(!listEl) return;
+      listEl.innerHTML = '<div class="stu-prompt-list">'
+        + buildAllStudentPromptsHTML(state.data, levelName, exText)
+        + '</div>';
+      // コピーボタン
+      listEl.querySelectorAll('[data-copy-stu]').forEach(btn=>{
+        const si = +btn.dataset.copyStu;
+        btn.onclick = ()=>{
+          const el = listEl.querySelector('#stu-pb-'+si);
+          if(!el) return;
+          navigator.clipboard.writeText(el.textContent).then(()=>{
+            btn.textContent='コピー済'; setTimeout(()=>btn.textContent='コピー',1400);
+          });
+        };
+      });
+      // QRコード表示ボタン（短縮プロンプト版でQR化）
+      listEl.querySelectorAll('[data-qr-stu]').forEach(btn=>{
+        const si = +btn.dataset.qrStu;
+        btn.onclick = ()=>{
+          const wrap = listEl.querySelector('#qr-wrap-'+si);
+          const noteEl = listEl.querySelector('#qr-note-'+si);
+          const dlBtn = listEl.querySelector('[data-qr-dl="'+si+'"]');
+          if(!wrap) return;
+          if(wrap.classList.contains('show')){
+            wrap.classList.remove('show');
+            wrap.innerHTML='';
+            btn.textContent='QRコード表示';
+            if(dlBtn) dlBtn.style.display='none';
+            if(noteEl) noteEl.textContent='';
+            return;
+          }
+          // QR用に短縮プロンプトを生成（ECC L で確実に収まるサイズ）
+          const qrText = buildShortPromptForQR(state.data, si, state.weakGen.level);
+          if(!qrText){
+            if(noteEl) noteEl.textContent='この生徒は弱点がないためQRを生成できません。';
+            return;
+          }
+          wrap.innerHTML='';
+          wrap.classList.add('show');
+          try{
+            new QRCode(wrap,{
+              text: qrText,
+              width:180, height:180,
+              correctLevel: QRCode.CorrectLevel.L
+            });
+            btn.textContent='QRを閉じる';
+            if(dlBtn) dlBtn.style.display='inline-flex';
+            if(noteEl) noteEl.innerHTML='<b>QR = 簡易プロンプト（ASCII版）</b> '+qrText.length+' chars<br>'
+              +'スキャン → AIに貼り付けで即開始。設問指示は英語ですがAIは正しく動作します。<br>'
+              +'詳細な日本語指示が必要な場合は「コピー（完全版）」を使ってください。';
+            if(dlBtn){
+              dlBtn.onclick=()=>{
+                const canvas=wrap.querySelector('canvas');
+                if(!canvas) return;
+                const a=document.createElement('a');
+                a.href=canvas.toDataURL('image/png');
+                a.download='qr_S'+String(si+1).padStart(2,'0')+'.png';
+                a.click();
+              };
+            }
+          }catch(e){
+            wrap.classList.remove('show');
+            if(noteEl) noteEl.textContent='QRコードの生成に失敗しました: '+e.message
+              +' ('+qrText.length+'文字)';
+          }
+        };
+      });
+      // 生成後にボタンをスクロール
+      listEl.scrollIntoView({behavior:'smooth', block:'start'});
     };
 
     // STEP5-B 通常問題生成：難易度ボタン（data-level のみ。data-weak-level は除外）
