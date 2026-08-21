@@ -927,7 +927,8 @@
       tests: [ { kind:'common', nQ:10, questions:[], grid:[],
         qtext:'', aireply:'', aitagStatus:'' } ],  // 各回のデータ（qtext/aireply/aitagStatusも回ごと）
       aiCopyStatus: '',               // 「○問の教師タグをAIタグからコピーしました」
-      aiCopyUsed: false               // 「AIタグを教師タグとして使用中」フラグ
+      aiCopyUsed: false,              // 「AIタグを教師タグとして使用中」フラグ
+      csvStatus: ''                   // CSV読込結果メッセージ（#csv-status表示用）
     },
     tagPicker: { open:false, qi:null, selected:[] },  // タグ選択モーダル
     mapViewTest: null,                // STEP2でいま表示中のテスト回（0始まり）
@@ -1185,7 +1186,7 @@
           <button class="ghost" id="dl-template">解答CSVテンプレート</button>
           <button class="ghost" id="dl-template-tags">問題タグCSVテンプレート</button>
         </div>
-        <span class="small" id="csv-status"></span>`;
+        <span class="small" id="csv-status">${escapeHTML(lv.csvStatus||'')}</span>`;
     }
     return `<div class="card">
       <h2><span class="tag">STEP 1 / 本番</span>生徒の解答を入力</h2>
@@ -3791,12 +3792,11 @@ ${tagLines}
         const nIndiv =testIds.filter(tid=>testKinds[tid]==='individual').length;
         let msg=` 読込成功：テスト${testIds.length}回（共通${nCommon}・個人別${nIndiv}）× 生徒${nStudents}名。`;
         msg+='問題のタグは「表に手入力」タブで設定してください。';
-        const st=root.querySelector('#csv-status');
-        if(st) st.textContent=msg;
+        state.live.csvStatus=msg;
         state.inputTab='grid'; render();
       }catch(e){
-        const st=root.querySelector('#csv-status');
-        if(st) st.textContent=' エラー: '+e.message;
+        state.live.csvStatus=' エラー: '+e.message;
+        render();
       }
     };
     reader.readAsText(file);
@@ -3821,19 +3821,18 @@ ${tagLines}
   function handleTagsCSV(file){
     const reader=new FileReader();
     reader.onload=()=>{
-      const st=root.querySelector('#csv-status');
       try{
         const text=reader.result;
         const lines=text.split(/\r?\n/).filter(l=>l.trim()&&!l.trim().startsWith('#'));
         if(lines.length===0) throw new Error('CSVが空です');
         const first=lines[0].split(',').map(s=>s.trim());
-        const hasHeader=/question_id/i.test(first[0]);
+        const hasHeader=first.some(c=>/^question_id$/i.test(c));
         const dataLines=hasHeader?lines.slice(1):lines;
         ensureGrid();
         const lv=state.live;
         const validTags=new Set(TAGS);
         const indivPattern=/^S(\d+)_Q(\d+)$/i;
-        let applied=0, skipped=0, unknownTags=[];
+        let applied=0, appliedAi=0, skipped=0, unknownTags=[];
 
         // test_id列があれば使う（なければ全共通回に適用）
         // ヘッダから列インデックスを取得
@@ -3892,7 +3891,8 @@ ${tagLines}
               wrote=true;
             });
             if(wrote&&validated.length>0) applied++;
-            else if(!wrote) skipped++;
+            if(wrote&&validatedAi.length>0) appliedAi++;
+            if(!wrote) skipped++;
           } else {
             // 共通形式: Q01 / Q01a (サブ問) → 全共通テスト回の対応する問題に適用
             const mSub=qid.match(/^Q(\d+)([a-z]?)$/i);
@@ -3921,16 +3921,18 @@ ${tagLines}
               wrote=true;
             });
             if(wrote&&validated.length>0) applied++;
-            else if(!wrote) skipped++;
+            if(wrote&&validatedAi.length>0) appliedAi++;
+            if(!wrote) skipped++;
           }
         });
-        let msg=` 問題タグを読込：${applied}問に教師タグを設定`;
+        let msg=` 問題タグを読込：${applied}問に教師タグ、${appliedAi}問にAIタグを設定`;
         if(skipped>0) msg+=`（${skipped}行スキップ）`;
         if(unknownTags.length>0) msg+=`。未知のタグを無視: ${unknownTags.join(', ')}`;
-        if(st) st.textContent=msg;
+        state.live.csvStatus=msg;
         render();
       }catch(e){
-        if(st) st.textContent=' 問題タグCSVエラー: '+e.message;
+        state.live.csvStatus=' 問題タグCSVエラー: '+e.message;
+        render();
       }
     };
     reader.readAsText(file);
