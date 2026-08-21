@@ -3828,7 +3828,6 @@ ${tagLines}
         const first=lines[0].split(',').map(s=>s.trim());
         const hasHeader=first.some(c=>/^question_id$/i.test(c));
         const dataLines=hasHeader?lines.slice(1):lines;
-        ensureGrid();
         const lv=state.live;
         const validTags=new Set(TAGS);
         const indivPattern=/^S(\d+)_Q(\d+)$/i;
@@ -3845,6 +3844,41 @@ ${tagLines}
           colAiTags=h.indexOf('ai_tags');
           colSrc=h.indexOf('teacher_source');
         }
+
+        // 先読み：共通回の最大問題番号を調べ、表の問題数をタグCSVに
+        // 合わせる（表に手入力タブがまだ空でも、タグCSV単体の問題数が
+        // そのまま表の列数になるように）。
+        //   回答も教師/AIタグも何も入っていない「手つかず」の回だけは
+        //   タグCSVの問題数にぴったり合わせる（デフォルト10問のまま
+        //   引きずられない）。何か入力済みの回は、タグCSVの方が多い
+        //   場合だけ広げる（入力済みデータを消さないよう縮めない）。
+        const isCommonTestUntouched=t=>{
+          const gridEmpty=!t.grid||t.grid.every(row=>!row||row.every(v=>v===undefined||v===null));
+          const tagsEmpty=!t.questions||t.questions.every(q=>
+            (!q.teacher||q.teacher.length===0)&&(!q.ai||q.ai.length===0));
+          return gridEmpty&&tagsEmpty;
+        };
+        let maxCommonQ=0;
+        dataLines.forEach(line=>{
+          const cols=line.split(',').map(s=>s.trim().replace(/^"|"$/g,''));
+          const qid=(cols[colQ]||'').trim();
+          const mSub=qid.match(/^Q(\d+)[a-z]?$/i);
+          if(mSub) maxCommonQ=Math.max(maxCommonQ,parseInt(mSub[1],10));
+        });
+        if(maxCommonQ>0){
+          if(!lv.tests||lv.tests.length===0){
+            lv.nQ=maxCommonQ;
+          } else {
+            const commonTests=lv.tests.filter(t=>t.kind===undefined||t.kind==='common');
+            commonTests.forEach(t=>{
+              if(isCommonTestUntouched(t)) t.nQ=maxCommonQ;
+              else if(maxCommonQ>(t.nQ||lv.nQ)) t.nQ=maxCommonQ;
+            });
+            const allUntouched=commonTests.length>0&&commonTests.every(isCommonTestUntouched);
+            if(allUntouched||maxCommonQ>lv.nQ) lv.nQ=maxCommonQ;
+          }
+        }
+        ensureGrid();
 
         dataLines.forEach(line=>{
           const cols=line.split(',').map(s=>s.trim().replace(/^"|"$/g,''));
