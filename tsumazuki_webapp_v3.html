@@ -928,10 +928,8 @@
       indivStudentIdx: 0,             // 個人別回で編集中の生徒（0始まり）
       tests: [ { kind:'common', nQ:10, questions:[], grid:[],
         qtext:'', aireply:'', aitagStatus:'',
-        responsesCsvLoaded:false, tagsCsvLoaded:false } ],  // 各回のデータ
-        // （qtext/aireply/aitagStatus/*CsvLoadedも全て回ごと）
-      aiCopyStatus: '',               // 「○問の教師タグをAIタグからコピーしました」
-      aiCopyUsed: false,              // 「AIタグを教師タグとして使用中」フラグ
+        responsesCsvLoaded:false, tagsCsvLoaded:false,
+        aiCopyStatus:'', aiCopyUsed:false } ],  // 各回のデータ（全項目が回ごと）
       csvStatus: ''                   // CSV読込結果メッセージ（#csv-status表示用）
     },
     tagPicker: { open:false, qi:null, selected:[] },  // タグ選択モーダル
@@ -1170,7 +1168,7 @@
           <button class="save-btn primary-save" id="export-tags">&#11015; タグをCSV保存（教師・AI）</button>
         </div>
         <div class="csv-section-head" style="margin-top:14px">&#128228; 保存したCSVを読み込む
-          <span class="small" style="font-weight:400">（第${lv.activeTest+1}回に適用されます）</span></div>
+          <span class="small" style="font-weight:400">（第${activeRoundNumber()}回に適用されます）</span></div>
         <div class="small" style="font-weight:500;margin:0 0 4px">
           &#9312; 解答データ</div>
         <div class="dropzone${respLoaded?' filled':''}" id="dropzone">
@@ -1255,7 +1253,7 @@
 
       <div class="small" style="margin:10px 0 4px;font-weight:500">
         &#9314; AIの返答（Q1: tag;tag 形式）をここに貼り付けて取り込む
-        <span style="color:var(--mute)">（現在のテスト回 第${lv.activeTest+1}回 に適用）</span></div>
+        <span style="color:var(--mute)">（現在のテスト回 第${activeRoundNumber()}回 に適用）</span></div>
       <textarea id="aireply" placeholder="Q1: relative-clause;vocabulary&#10;Q2: tense"
         style="width:100%;min-height:70px;font-family:'Spline Sans Mono',monospace;
         font-size:.78rem;padding:8px;border:1.5px solid var(--line);border-radius:3px;
@@ -1273,10 +1271,10 @@
           コピーできます。これでつまずきマップを自動作成できます。
           タグの由来は記録されるので、マップ上で「AI由来」と「教員手動」を区別できます。</div>
         <button class="ghost" id="copy-ai-to-teacher">AIタグを教師タグとして使う</button>
-        ${lv.aiCopyUsed
+        ${(activeTest()&&activeTest().aiCopyUsed)
           ? '<span class="ai-copy-badge">AIタグを教師タグとして使用中です</span>'
           : ''}
-        <span class="small" id="ai-copy-status">${escapeHTML(lv.aiCopyStatus||'')}</span>
+        <span class="small" id="ai-copy-status">${escapeHTML((activeTest()&&activeTest().aiCopyStatus)||'')}</span>
       </div>
     </div>
 
@@ -1302,7 +1300,7 @@
         (t.grid||[]).forEach(row=>row.forEach(v=>{ if(v===0||v===1) filled++; }));
       }
       const tab=`<div class="ttab ${i===lv.activeTest?'active':''}" data-ttab="${i}">
-        第${i+1}回<br><span class="tprog">${filled}/${total}</span></div>`;
+        第${roundNumberInKind(i)}回<br><span class="tprog">${filled}/${total}</span></div>`;
       if(t.kind==='individual') indivTabs+=tab;
       else commonTabs+=tab;
     });
@@ -1314,7 +1312,7 @@
       ? '<span style="color:var(--mute);font-size:.72rem">（サブ問込み合計 '+curNQ+' 列）</span>' : '';
     const roundQSlider = curKind==='common' ? `
       <div class="round-q">
-        <span class="small" style="font-weight:500">第${lv.activeTest+1}回の大問数：
+        <span class="small" style="font-weight:500">第${activeRoundNumber()}回の大問数：
           <span class="val" id="lv-roundq">${curMainN}</span>
           ${subInfo}
         </span>
@@ -1334,9 +1332,9 @@
       </div>
     </div>
     <div class="small" style="margin-bottom:4px">
-      編集中：<b>第${lv.activeTest+1}回</b>（${curKind==='common'?'共通テスト':'個人別問題'}）。タブで回を切り替え。</div>
+      編集中：<b>第${activeRoundNumber()}回</b>（${curKind==='common'?'共通テスト':'個人別問題'}）。タブで回を切り替え。</div>
     <div class="kind-pick">
-      <span class="small" style="font-weight:500">第${lv.activeTest+1}回の種別：</span>
+      <span class="small" style="font-weight:500">第${activeRoundNumber()}回の種別：</span>
       <label class="kind-opt"><input type="radio" name="testkind" value="common"
         ${curKind==='common'?'checked':''}> 共通テスト（全員同じ問題・偏差値の対象）</label>
       <label class="kind-opt"><input type="radio" name="testkind" value="individual"
@@ -2839,7 +2837,7 @@ ${tagLines}
           } else if(v==='del'){
             const lv=state.live;
             if(lv.tests.length<=1) return;
-            if(!confirm(`第${lv.activeTest+1}回のデータを削除します。よろしいですか？`)) return;
+            if(!confirm(`第${activeRoundNumber()}回のデータを削除します。よろしいですか？`)) return;
             lv.tests.splice(lv.activeTest,1);
             lv.activeTest=Math.max(0,lv.activeTest-1);
             ensureGrid(); render();
@@ -3072,7 +3070,7 @@ ${tagLines}
           if(appliedQ===0){
             at.aitagStatus=' 取り込めるタグがありません。形式 "Q1: tag;tag" を確認してください。';
           } else {
-            at.aitagStatus=` 第${state.live.activeTest+1}回（個人別）の${appliedQ}問にAIタグを取り込みました。`;
+            at.aitagStatus=` 第${activeRoundNumber()}回（個人別）の${appliedQ}問にAIタグを取り込みました。`;
           }
         } else {
           const nQ=at.nQ||state.live.nQ;
@@ -3083,7 +3081,7 @@ ${tagLines}
           if(applied===0){
             at.aitagStatus=' 取り込めるタグがありません。形式 "Q1: tag;tag" を確認してください。';
           } else {
-            at.aitagStatus=` 第${state.live.activeTest+1}回の${applied}問にAIタグを取り込みました。`;
+            at.aitagStatus=` 第${activeRoundNumber()}回の${applied}問にAIタグを取り込みました。`;
             // 複数タグが付いた問題を検出して分割提案
             if(at.kind!=='individual'){
               const multiTagQs = [];
@@ -3170,7 +3168,7 @@ ${tagLines}
           }
         }
         if(aiCount===0){
-          state.live.aiCopyStatus=' AIタグがまだ取り込まれていません。先に③で取り込んでください。';
+          at.aiCopyStatus=' AIタグがまだ取り込まれていません。先に③で取り込んでください。';
           render(); return;
         }
         // 教師タグが既にある問題は上書き確認
@@ -3211,8 +3209,8 @@ ${tagLines}
             copied++;
           }
         }
-        state.live.aiCopyStatus=` ${copied}問の教師タグをAIタグからコピーしました。`;
-        state.live.aiCopyUsed=true;
+        at.aiCopyStatus=` ${copied}問の教師タグをAIタグからコピーしました。`;
+        at.aiCopyUsed=true;
         render();
       };
     }
@@ -3551,6 +3549,8 @@ ${tagLines}
     if(t.aitagStatus===undefined) t.aitagStatus='';
     if(t.responsesCsvLoaded===undefined) t.responsesCsvLoaded=false;
     if(t.tagsCsvLoaded===undefined) t.tagsCsvLoaded=false;
+    if(t.aiCopyStatus===undefined) t.aiCopyStatus='';
+    if(t.aiCopyUsed===undefined) t.aiCopyUsed=false;
   }
 
   function ensureGrid(){
@@ -3598,6 +3598,22 @@ ${tagLines}
   //   'ai-edited': AIコピー後に教員が編集した
   // いま編集中のテスト回を返す
   function activeTest(){ return state.live.tests[state.live.activeTest]; }
+
+  // 指定インデックスの回が「共通／個人別」それぞれの中で何回目にあたるかを
+  // 返す（1始まり）。共通と個人別は別系列の通し番号として表示するため、
+  // 全体の配列位置（i+1）ではなくこちらを表示ラベルに使う。
+  function roundNumberInKind(idx){
+    const lv=state.live;
+    const t=lv.tests[idx];
+    const kind=t?(t.kind||'common'):'common';
+    let n=0;
+    for(let i=0;i<=idx&&i<lv.tests.length;i++){
+      const k=lv.tests[i]?(lv.tests[i].kind||'common'):'common';
+      if(k===kind) n++;
+    }
+    return n;
+  }
+  function activeRoundNumber(){ return roundNumberInKind(state.live.activeTest); }
   // 個人別回でいま編集中の生徒の問題セットを返す
   function activeStudentSet(){
     const t=activeTest();
