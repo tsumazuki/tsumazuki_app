@@ -539,6 +539,8 @@
   }
   .dropzone:hover, .dropzone.drag { border-color: var(--accent2); background: #eef2f1; }
   .dropzone b { color: var(--ink); }
+  .dropzone.filled { border-style: solid; border-color: #3a8a5f; background: #eaf6ef; }
+  .dropzone.filled:hover { background: #ddf0e5; }
 
   .qgen-block {
     border: 1.5px solid var(--line); border-radius: 4px; padding: 13px 15px;
@@ -913,7 +915,7 @@
   // 状態
   // ============================================================
   let state = {
-    appMode: 'dummy',                 // 'dummy' | 'live'
+    appMode: 'live',                  // 'dummy' | 'live'
     cfg: { seed:42, nStudents:35, nTests:3, nQ:20, spread:0.12, gain:0.06 },
     data: null,                       // 分析対象データ（生成 or 入力）
     step: 0,
@@ -928,7 +930,9 @@
         qtext:'', aireply:'', aitagStatus:'' } ],  // 各回のデータ（qtext/aireply/aitagStatusも回ごと）
       aiCopyStatus: '',               // 「○問の教師タグをAIタグからコピーしました」
       aiCopyUsed: false,              // 「AIタグを教師タグとして使用中」フラグ
-      csvStatus: ''                   // CSV読込結果メッセージ（#csv-status表示用）
+      csvStatus: '',                  // CSV読込結果メッセージ（#csv-status表示用）
+      responsesCsvLoaded: false,      // 解答データCSVを一度でも読み込んだか（ドロップゾーンの表示用）
+      tagsCsvLoaded: false            // 問題タグCSVを一度でも読み込んだか（ドロップゾーンの表示用）
     },
     tagPicker: { open:false, qi:null, selected:[] },  // タグ選択モーダル
     mapViewTest: null,                // STEP2でいま表示中のテスト回（0始まり）
@@ -1165,7 +1169,8 @@
         <div class="csv-section-head" style="margin-top:14px">&#128228; 保存したCSVを読み込む</div>
         <div class="small" style="font-weight:500;margin:0 0 4px">
           &#9312; 解答データ</div>
-        <div class="dropzone" id="dropzone">
+        <div class="dropzone${lv.responsesCsvLoaded?' filled':''}" id="dropzone">
+          ${lv.responsesCsvLoaded?'&#9989; 読込済み（クリックで再読込）<br>':''}
           CSVファイルをここにドラッグ&ドロップ、または<b>クリックして選択</b><br>
           <span class="small">形式: test_id, question_id, student_id, correct（1=正解/0=不正解）</span><br>
           <span class="small">複数回のテストは test_id 列（test01, test02…）で区別します</span>
@@ -1174,7 +1179,8 @@
 
         <div class="small" style="font-weight:500;margin:12px 0 4px">
           &#9313; 問題タグ（教師タグ・AIタグ）</div>
-        <div class="dropzone" id="dropzone-tags">
+        <div class="dropzone${lv.tagsCsvLoaded?' filled':''}" id="dropzone-tags">
+          ${lv.tagsCsvLoaded?'&#9989; 読込済み（クリックで再読込）<br>':''}
           問題タグCSVをここにドラッグ&ドロップ、または<b>クリックして選択</b><br>
           <span class="small">形式: question_id, teacher_tags, ai_tags（タグはセミコロン区切り）</span><br>
           <span class="small">例: <code>Q01,relative-clause;vocabulary,tense</code></span>
@@ -1205,7 +1211,7 @@
           <div class="hint">入力する人数</div></div>
       </div>
       <div class="input-tabs">
-        <div class="itab ${state.inputTab==='grid'?'active':''}" data-itab="grid">表に手入力</div>
+        <div class="itab ${state.inputTab==='grid'?'active':''}" data-itab="grid">表に入力</div>
         <div class="itab ${state.inputTab==='csv'?'active':''}" data-itab="csv">回答・タグCSVを入出力</div>
       </div>
       ${inputArea}
@@ -2300,6 +2306,17 @@ ${questionText.trim()}`;
       if(qi>=0) result[qi] = [...new Set(tags)];
     }
     return result;
+  }
+
+  // parseTaggingReplyの逆変換：現在の回のai_tagsを「Q1: tag;tag」形式のテキストにする
+  //   （問題タグCSVを読み込んだ直後、STEP1bのテキストエリアに反映するために使う）
+  function aiTagsToReplyText(test){
+    if(!test||!test.questions) return '';
+    const lines=[];
+    test.questions.forEach((q,i)=>{
+      if(q&&q.ai&&q.ai.length>0) lines.push(`Q${i+1}: ${q.ai.join(';')}`);
+    });
+    return lines.join('\n');
   }
 
   // 生成AI向けプロンプトの自動組み立て（弱点連動）
@@ -3791,8 +3808,9 @@ ${tagLines}
         const nCommon=testIds.filter(tid=>testKinds[tid]==='common').length;
         const nIndiv =testIds.filter(tid=>testKinds[tid]==='individual').length;
         let msg=` 読込成功：テスト${testIds.length}回（共通${nCommon}・個人別${nIndiv}）× 生徒${nStudents}名。`;
-        msg+='問題のタグは「表に手入力」タブで設定してください。';
+        msg+='問題のタグは「表に入力」タブで設定してください。';
         state.live.csvStatus=msg;
+        state.live.responsesCsvLoaded=true;
         state.inputTab='grid'; render();
       }catch(e){
         state.live.csvStatus=' エラー: '+e.message;
@@ -3846,7 +3864,7 @@ ${tagLines}
         }
 
         // 先読み：共通回の最大問題番号を調べ、表の問題数をタグCSVに
-        // 合わせる（表に手入力タブがまだ空でも、タグCSV単体の問題数が
+        // 合わせる（表に入力タブがまだ空でも、タグCSV単体の問題数が
         // そのまま表の列数になるように）。
         //   回答も教師/AIタグも何も入っていない「手つかず」の回だけは
         //   タグCSVの問題数にぴったり合わせる（デフォルト10問のまま
@@ -3963,6 +3981,12 @@ ${tagLines}
         if(skipped>0) msg+=`（${skipped}行スキップ）`;
         if(unknownTags.length>0) msg+=`。未知のタグを無視: ${unknownTags.join(', ')}`;
         state.live.csvStatus=msg;
+        state.live.tagsCsvLoaded=true;
+        // STEP1bのテキストエリアに、現在の回のAIタグを「Q1: tag;tag」形式で反映
+        // （編集して「AIタグを取り込む」を押せば表・CSV双方に反映される一つの
+        // データにするため。個人別回はこの欄の対象外なのでそのまま）
+        const atNow=activeTest();
+        if(atNow&&atNow.kind!=='individual') atNow.aireply=aiTagsToReplyText(atNow);
         render();
       }catch(e){
         state.live.csvStatus=' 問題タグCSVエラー: '+e.message;
