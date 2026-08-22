@@ -927,12 +927,12 @@
       activeTest: 0,                  // いま編集中のテスト回（0始まり）
       indivStudentIdx: 0,             // 個人別回で編集中の生徒（0始まり）
       tests: [ { kind:'common', nQ:10, questions:[], grid:[],
-        qtext:'', aireply:'', aitagStatus:'' } ],  // 各回のデータ（qtext/aireply/aitagStatusも回ごと）
+        qtext:'', aireply:'', aitagStatus:'',
+        responsesCsvLoaded:false, tagsCsvLoaded:false } ],  // 各回のデータ
+        // （qtext/aireply/aitagStatus/*CsvLoadedも全て回ごと）
       aiCopyStatus: '',               // 「○問の教師タグをAIタグからコピーしました」
       aiCopyUsed: false,              // 「AIタグを教師タグとして使用中」フラグ
-      csvStatus: '',                  // CSV読込結果メッセージ（#csv-status表示用）
-      responsesCsvLoaded: false,      // 解答データCSVを一度でも読み込んだか（ドロップゾーンの表示用）
-      tagsCsvLoaded: false            // 問題タグCSVを一度でも読み込んだか（ドロップゾーンの表示用）
+      csvStatus: ''                   // CSV読込結果メッセージ（#csv-status表示用）
     },
     tagPicker: { open:false, qi:null, selected:[] },  // タグ選択モーダル
     mapViewTest: null,                // STEP2でいま表示中のテスト回（0始まり）
@@ -1160,17 +1160,21 @@
       const indiv = at && at.kind==='individual';
       inputArea = testTabsHTML() + (indiv ? indivInputHTML() : gridInputHTML());
     } else {
+      const atCsv=activeTest();
+      const respLoaded=atCsv&&atCsv.responsesCsvLoaded;
+      const tagsLoaded=atCsv&&atCsv.tagsCsvLoaded;
       inputArea = `
         <div class="csv-section-head">&#128190; データを保存する</div>
         <div class="csv-save-row">
           <button class="save-btn primary-save" id="export-live">&#11015; 解答データをCSV保存</button>
           <button class="save-btn primary-save" id="export-tags">&#11015; タグをCSV保存（教師・AI）</button>
         </div>
-        <div class="csv-section-head" style="margin-top:14px">&#128228; 保存したCSVを読み込む</div>
+        <div class="csv-section-head" style="margin-top:14px">&#128228; 保存したCSVを読み込む
+          <span class="small" style="font-weight:400">（第${lv.activeTest+1}回に適用されます）</span></div>
         <div class="small" style="font-weight:500;margin:0 0 4px">
           &#9312; 解答データ</div>
-        <div class="dropzone${lv.responsesCsvLoaded?' filled':''}" id="dropzone">
-          ${lv.responsesCsvLoaded?'&#9989; 読込済み（クリックで再読込）<br>':''}
+        <div class="dropzone${respLoaded?' filled':''}" id="dropzone">
+          ${respLoaded?'&#9989; この回は読込済み（クリックで再読込）<br>':''}
           CSVファイルをここにドラッグ&ドロップ、または<b>クリックして選択</b><br>
           <span class="small">形式: test_id, question_id, student_id, correct（1=正解/0=不正解）</span><br>
           <span class="small">複数回のテストは test_id 列（test01, test02…）で区別します</span>
@@ -1179,8 +1183,8 @@
 
         <div class="small" style="font-weight:500;margin:12px 0 4px">
           &#9313; 問題タグ（教師タグ・AIタグ）</div>
-        <div class="dropzone${lv.tagsCsvLoaded?' filled':''}" id="dropzone-tags">
-          ${lv.tagsCsvLoaded?'&#9989; 読込済み（クリックで再読込）<br>':''}
+        <div class="dropzone${tagsLoaded?' filled':''}" id="dropzone-tags">
+          ${tagsLoaded?'&#9989; この回は読込済み（クリックで再読込）<br>':''}
           問題タグCSVをここにドラッグ&ドロップ、または<b>クリックして選択</b><br>
           <span class="small">形式: question_id, teacher_tags, ai_tags（タグはセミコロン区切り）</span><br>
           <span class="small">例: <code>Q01,relative-clause;vocabulary,tense</code></span>
@@ -3545,6 +3549,8 @@ ${tagLines}
     if(t.qtext===undefined) t.qtext='';
     if(t.aireply===undefined) t.aireply='';
     if(t.aitagStatus===undefined) t.aitagStatus='';
+    if(t.responsesCsvLoaded===undefined) t.responsesCsvLoaded=false;
+    if(t.tagsCsvLoaded===undefined) t.tagsCsvLoaded=false;
   }
 
   function ensureGrid(){
@@ -3825,7 +3831,7 @@ ${tagLines}
         let msg=` 読込成功：テスト${testIds.length}回（共通${nCommon}・個人別${nIndiv}）× 生徒${lv.nStudents}名。`;
         msg+='問題のタグは「表に入力」タブで設定してください。';
         state.live.csvStatus=msg;
-        state.live.responsesCsvLoaded=true;
+        testIds.forEach(tid=>{ lv.tests[tIdx[tid]].responsesCsvLoaded=true; });
         state.inputTab='grid'; render();
       }catch(e){
         state.live.csvStatus=' エラー: '+e.message;
@@ -3865,6 +3871,7 @@ ${tagLines}
         const validTags=new Set(TAGS);
         const indivPattern=/^S(\d+)_Q(\d+)$/i;
         let applied=0, appliedAi=0, skipped=0, unknownTags=[];
+        const touchedTests=new Set();
 
         // test_id列があれば使う（なければ全共通回に適用）
         // ヘッダから列インデックスを取得
@@ -3956,6 +3963,7 @@ ${tagLines}
               if(validatedAi.length>0) ps.questions[qi].ai=validatedAi;
               ps.questions[qi].teacherSource=teacherSrc;
               wrote=true;
+              touchedTests.add(t);
             });
             if(wrote&&validated.length>0) applied++;
             if(wrote&&validatedAi.length>0) appliedAi++;
@@ -3986,6 +3994,7 @@ ${tagLines}
               if(validatedAi.length>0) t.questions[qi].ai=validatedAi;
               t.questions[qi].teacherSource=teacherSrc;
               wrote=true;
+              touchedTests.add(t);
             });
             if(wrote&&validated.length>0) applied++;
             if(wrote&&validatedAi.length>0) appliedAi++;
@@ -3996,7 +4005,7 @@ ${tagLines}
         if(skipped>0) msg+=`（${skipped}行スキップ）`;
         if(unknownTags.length>0) msg+=`。未知のタグを無視: ${unknownTags.join(', ')}`;
         state.live.csvStatus=msg;
-        state.live.tagsCsvLoaded=true;
+        touchedTests.forEach(t=>{ t.tagsCsvLoaded=true; });
         // STEP1bのテキストエリアに、現在の回のAIタグを「Q1: tag;tag」形式で反映
         // （編集して「AIタグを取り込む」を押せば表・CSV双方に反映される一つの
         // データにするため。個人別回はこの欄の対象外なのでそのまま）
