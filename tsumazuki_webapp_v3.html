@@ -3713,7 +3713,6 @@ ${tagLines}
       try{
         const recs=parseCSV(reader.result);
         const testIds=[...new Set(recs.map(r=>r.test))].sort();
-        const tIdx={}; testIds.forEach((t,i)=>tIdx[t]=i);
 
         // question_id が SXX_QYY 形式なら個人別回と判定
         const indivPattern=/^S\d+_Q\d+$/i;
@@ -3723,10 +3722,10 @@ ${tagLines}
           testKinds[tid]=(sample&&indivPattern.test(sample.q))?'individual':'common';
         });
 
-        // 生徒リスト（全回のstudent_idをまとめてユニーク化）
+        // 生徒リスト（このCSV内でユニーク化。既存の他の回の生徒数はここでは変えない）
         const students=[...new Set(recs.map(r=>r.s))].sort();
         const sIdx={}; students.forEach((s,i)=>sIdx[s]=i);
-        const nStudents=students.length;
+        const nStudentsInFile=students.length;
 
         // 共通回の問題数をQ番号の最大値から求める
         const commonRecs=recs.filter(r=>testKinds[r.test]==='common');
@@ -3737,12 +3736,28 @@ ${tagLines}
         });
         const defaultNQ=maxCommonQ||10;
 
-        state.live.nStudents=nStudents;
-        state.live.nQ=defaultNQ;
-        state.live.tests=testIds.map(tid=>({
-          questions:[], grid:[], kind:testKinds[tid], nQ:defaultNQ, perStudent:[]
-        }));
-        state.live.activeTest=0;
+        const lv=state.live;
+        // 既存の回・生徒数は保持し、このCSVの分だけ広げる（縮めない）。
+        // 生徒数はテスト回をまたいで共有の設定なので、他の回の入力済み
+        // データが表から消えないよう、常に「大きい方」を採用する。
+        lv.nStudents=Math.max(lv.nStudents||0, nStudentsInFile);
+        if(maxCommonQ>lv.nQ) lv.nQ=maxCommonQ;
+
+        // test_id → 配置先インデックス。書き出し時の規約（test01→1回目,
+        // test02→2回目…）に合わせて、対応する回だけを更新する。他の回は
+        // このCSVに含まれていない限り一切触らない — 以前はここで
+        // state.live.tests を丸ごと作り直していたため、別の回のCSVを
+        // 読み込むたびに他の回のデータが消えてしまうバグがあった。
+        const tIdx={};
+        testIds.forEach(tid=>{
+          const m=tid.match(/^test0*(\d+)$/i);
+          tIdx[tid]=m?(parseInt(m[1],10)-1):lv.tests.length;
+        });
+        const maxIdx=Math.max(lv.tests.length-1,...Object.values(tIdx));
+        while(lv.tests.length<=maxIdx){
+          lv.tests.push({kind:'common',nQ:lv.nQ,questions:[],grid:[],perStudent:[]});
+        }
+        lv.activeTest=tIdx[testIds[0]];
         ensureGrid();
 
         // 共通テスト回：サブ問を考慮してグリッドに書き込む
@@ -3770,7 +3785,7 @@ ${tagLines}
             return q;
           });
           t.grid=[];
-          for(let s=0;s<nStudents;s++) t.grid.push(new Array(qidOrder.length).fill(null));
+          for(let s=0;s<lv.nStudents;s++) t.grid.push(new Array(qidOrder.length).fill(null));
           testRecs.forEach(r=>{
             const si=sIdx[r.s]; if(si===undefined) return;
             const qi=qidOrder.indexOf(r.q); if(qi<0) return;
@@ -3790,7 +3805,7 @@ ${tagLines}
             const qi=parseInt(m[1],10);
             if(!perStuMax[si]||qi>perStuMax[si]) perStuMax[si]=qi;
           });
-          for(let s=0;s<nStudents;s++){
+          for(let s=0;s<lv.nStudents;s++){
             const nQ=perStuMax[s]||defaultNQ;
             t.perStudent[s]={nQ, questions:[], answers:[]};
           }
@@ -3807,7 +3822,7 @@ ${tagLines}
         ensureGrid();
         const nCommon=testIds.filter(tid=>testKinds[tid]==='common').length;
         const nIndiv =testIds.filter(tid=>testKinds[tid]==='individual').length;
-        let msg=` 読込成功：テスト${testIds.length}回（共通${nCommon}・個人別${nIndiv}）× 生徒${nStudents}名。`;
+        let msg=` 読込成功：テスト${testIds.length}回（共通${nCommon}・個人別${nIndiv}）× 生徒${lv.nStudents}名。`;
         msg+='問題のタグは「表に入力」タブで設定してください。';
         state.live.csvStatus=msg;
         state.live.responsesCsvLoaded=true;
