@@ -1380,7 +1380,21 @@
       問題のヘッダをクリックでタグを設定・問題の分割ができます。
       現在 ${mainInfo}。</div>
       <div class="grid-input"><table class="entry">
-      <thead><tr>${qhdr}</tr></thead><tbody>${body}</tbody></table></div>`;
+      <thead><tr>${qhdr}</tr></thead><tbody>${body}</tbody></table></div>
+
+      <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)">
+        <div class="small" style="font-weight:500;margin-bottom:4px">
+          教師タグを「Q1: tag;tag」形式でまとめて取り込む
+          <span style="color:var(--mute)">（第${activeRoundNumber()}回の表に反映されます）</span></div>
+        <textarea id="teachertagreply" placeholder="Q1: relative-clause;vocabulary&#10;Q2: tense"
+          style="width:100%;min-height:70px;font-family:'Spline Sans Mono',monospace;
+          font-size:.78rem;padding:8px;border:1.5px solid var(--line);border-radius:3px;
+          resize:vertical">${escapeHTML(at.teacherTagsReply||'')}</textarea>
+        <div style="margin-top:8px">
+          <button class="ghost" id="import-teachertags">タグを取り込む</button>
+          <span class="small" id="teachertag-status">${escapeHTML(at.teacherTagStatus||'')}</span>
+        </div>
+      </div>`;
   }
 
   // 本番モード：個人別問題の入力（1画面1生徒）
@@ -2945,6 +2959,39 @@ ${tagLines}
       root.querySelectorAll('th.qhdr').forEach((th,qi)=>{
         th.onclick=()=>openTagPicker(qi);
       });
+      // 教師タグ一括取り込みテキストエリアの入力を現在の回に同期
+      const ttEl=root.querySelector('#teachertagreply');
+      if(ttEl) ttEl.oninput=()=>{
+        const atNow=activeTest(); if(atNow) atNow.teacherTagsReply=ttEl.value;
+      };
+      // 「Q1: tag;tag」形式のテキストを教師タグとして表に取り込む（現在の共通回に適用）
+      const impTt=root.querySelector('#import-teachertags');
+      if(impTt) impTt.onclick=()=>{
+        const reply=root.querySelector('#teachertagreply').value;
+        ensureGrid();
+        const at=activeTest();
+        if(!at||at.kind==='individual'){ render(); return; }
+        at.teacherTagsReply=reply;  // 確実に同期
+        if(!reply.trim()){
+          at.teacherTagStatus=' タグを貼り付けてください。';
+          render(); return;
+        }
+        const parsed=parseTaggingReply(reply);
+        let applied=0;
+        const nQ=at.nQ||state.live.nQ;
+        Object.keys(parsed).forEach(qi=>{
+          const i=+qi;
+          if(i<nQ){
+            at.questions[i].teacher=parsed[i];
+            at.questions[i].teacherSource=parsed[i].length>0?'manual':at.questions[i].teacherSource;
+            applied++;
+          }
+        });
+        at.teacherTagStatus = applied===0
+          ? ' 取り込めるタグがありません。形式 "Q1: tag;tag" を確認してください。'
+          : ` 第${activeRoundNumber()}回の${applied}問に教師タグを取り込みました。`;
+        render();
+      };
       // CSVドロップゾーン（解答データ）
       const dz=root.querySelector('#dropzone'), fi=root.querySelector('#fileinp');
       if(dz&&fi){
@@ -3549,6 +3596,8 @@ ${tagLines}
     if(t.tagsCsvLoaded===undefined) t.tagsCsvLoaded=false;
     if(t.aiCopyStatus===undefined) t.aiCopyStatus='';
     if(t.aiCopyUsed===undefined) t.aiCopyUsed=false;
+    if(t.teacherTagsReply===undefined) t.teacherTagsReply='';
+    if(t.teacherTagStatus===undefined) t.teacherTagStatus='';
   }
 
   function ensureGrid(){
