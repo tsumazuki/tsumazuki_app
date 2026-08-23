@@ -2832,19 +2832,26 @@ ${tagLines}
             const prevNQ=prev.nQ||lv.nQ;
             const newQs=prevQs.map(q=>({teacher:[...(q.teacher||[])],ai:[],
               teacherSource:q.teacherSource||null}));
-            // 追加回は「個人別問題」をデフォルトに（弱点補強の結果を記録する想定）。
-            lv.tests.push({kind:'individual', nQ:prevNQ, perStudent:[]});
+            // 追加回は「共通テスト」をデフォルトに（全員同じ問題・偏差値の対象）。
+            lv.tests.push({kind:'common', nQ:prevNQ});
             lv.activeTest=lv.tests.length-1;
             lv.indivStudentIdx=0;
             ensureGrid();
-            // 直前回のタグを各生徒の初期問題タグに反映（任意の出発点）
+            // 直前回のタグを新しい回の初期問題タグに反映（任意の出発点）
             const nt=lv.tests[lv.activeTest];
-            nt.perStudent.forEach(ps=>{
-              for(let i=0;i<ps.questions.length&&i<newQs.length;i++){
-                ps.questions[i].teacher=[...newQs[i].teacher];
-                ps.questions[i].teacherSource=newQs[i].teacherSource;
+            if(nt.kind==='individual'){
+              nt.perStudent.forEach(ps=>{
+                for(let i=0;i<ps.questions.length&&i<newQs.length;i++){
+                  ps.questions[i].teacher=[...newQs[i].teacher];
+                  ps.questions[i].teacherSource=newQs[i].teacherSource;
+                }
+              });
+            } else {
+              for(let i=0;i<nt.questions.length&&i<newQs.length;i++){
+                nt.questions[i].teacher=[...newQs[i].teacher];
+                nt.questions[i].teacherSource=newQs[i].teacherSource;
               }
-            });
+            }
             render();
           } else if(v==='del'){
             const lv=state.live;
